@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: audio_db
+    environment:
+      POSTGRES_USER: insa_user
+      POSTGRES_PASSWORD: secure_password
+      POSTGRES_DB: audio_signature_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: audio_api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://insa_user:secure_password@db:5432/audio_signature_db
+    depends_on:
+      - db
+    volumes:
+      - .:/app
+
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    container_name: audio_ui
+    ports:
+      - "8501:8501"
+    environment:
+      API_URL: http://api:8000
+    depends_on:
+      - api
+    volumes:
+      - ./ui:/app/ui
+
+volumes:
+  postgres_data:
