@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     # Peak detection                                                       #
     # ------------------------------------------------------------------ #
 
-    PEAK_NEIGHBORHOOD_SIZE: int = 10
+    PEAK_NEIGHBORHOOD_SIZE: int = 20
     """Radius (in time–frequency bins) of the local-max neighbourhood.
     A peak must be the maximum within a (2N+1)×(2N+1) box."""
 
