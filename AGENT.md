@@ -36,7 +36,7 @@ Dockerfile (API), Dockerfile.ui (Streamlit), docker-compose.yml
 8. app/engine/ must not import from app/db or app/api (pure functions).
 9. ui/ must not import from app/. HTTP only.
 10. Existing files are not rewritten without being listed first.
-11. Target runtime is Python 3.11 (Docker/CI). Never use features or pins that break on 3.11.
+11.  Target runtime is Python 3.12 (Docker/CI). Never use features or pins that break on 3.12.
 12. After finishing a task, tick its checkbox in TASKS.md.
 13. Tests use synthetic audio generated with numpy. Never depend on real song files.
 
