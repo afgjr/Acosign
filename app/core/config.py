@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     """Target sample rate (Hz) to which all audio is resampled on load.
     22 050 Hz covers the full musical range while keeping arrays compact."""
 
+    MIN_AUDIO_DURATION: float = 1.0
+    """Minimum audio duration in seconds. Audio shorter than this is rejected."""
+
     # ------------------------------------------------------------------ #
     # Spectrogram                                                          #
     # ------------------------------------------------------------------ #
@@ -41,6 +44,9 @@ class Settings(BaseSettings):
     HOP_LENGTH: int = 2048
     """Number of samples between successive FFT frames (50 % overlap).
     Overlap ensures peaks near frame boundaries are captured."""
+
+    TOP_DB: float = 80.0
+    """Dynamic range in dB for spectrogram normalization relative to peak magnitude."""
 
     # ------------------------------------------------------------------ #
     # Peak detection                                                       #
