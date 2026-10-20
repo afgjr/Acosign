@@ -27,7 +27,7 @@ Dockerfile (API), Dockerfile.ui (Streamlit), docker-compose.yml
 
 ## Rules
 1. Fingerprint code must be pure and deterministic (same input → same hashes).
-2. All magic numbers live in config.py.
+2. All magic numbers live in app/core/config.py.
 3. Every new module ships with pytest tests in the same change.
 4. Never hardcode secrets; use .env + .env.example.
 5. Small steps: implement ONLY the task requested, then stop and report.
@@ -36,6 +36,9 @@ Dockerfile (API), Dockerfile.ui (Streamlit), docker-compose.yml
 8. app/engine/ must not import from app/db or app/api (pure functions).
 9. ui/ must not import from app/. HTTP only.
 10. Existing files are not rewritten without being listed first.
+11. Target runtime is Python 3.11 (Docker/CI). Never use features or pins that break on 3.11.
+12. After finishing a task, tick its checkbox in TASKS.md.
+13. Tests use synthetic audio generated with numpy. Never depend on real song files.
 
 ## Definition of Done (per task)
 - Tests pass, type hints present, docstrings on public functions

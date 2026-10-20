@@ -7,3 +7,5 @@ venv/
 *.m4a
 !data/samples/.keep
 .pytest_cache/
+TASKS.md
+AGENT.md
