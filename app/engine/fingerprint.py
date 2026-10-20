@@ -196,3 +196,103 @@ def fingerprint_peaks(source: str | Path | bytes) -> list[tuple[int, int]]:
     y = load_audio(source)
     spec = compute_spectrogram(y)
     return find_peaks(spec)
+
+
+# ── Hash generation ────────────────────────────────────────────────────────
+#
+# Bit-packing layout: hash = (f1 << 22) | (f2 << 10) | dt
+#
+#   Field  Bits  Max value  Notes
+#   ─────  ────  ─────────  ──────────────────────────────────────────────
+#   f1     12    4095       freq-bin of the anchor peak  (N_FFT//2 = 2048)
+#   f2     12    4095       freq-bin of the target peak  (same range)
+#   dt     10    1023       time-frame gap (frames, not seconds)
+#
+# Total: 34 bits → fits comfortably in a Python int / SQLite INTEGER.
+#
+# Pairs whose f1, f2, or dt would overflow these limits are skipped so the
+# invariant "unpacking always recovers the original values" holds exactly.
+#
+_F_BITS = 12       # bits reserved for each frequency-bin field
+_DT_BITS = 10      # bits reserved for the delta-time field
+_F_MAX = (1 << _F_BITS) - 1    # 4095 — maximum valid freq bin
+_DT_MAX = (1 << _DT_BITS) - 1  # 1023 — maximum valid dt in frames
+
+
+def generate_hashes(
+    peaks: list[tuple[int, int]],
+) -> list[tuple[int, int]]:
+    """Generate fingerprint hashes from a sorted list of (freq_bin, time_frame) peaks.
+
+    For each anchor peak, pairs it with up to settings.FAN_OUT following peaks
+    whose time-frame gap dt satisfies:
+        settings.MIN_DELTA_T <= dt <= settings.MAX_DELTA_T
+
+    Candidate targets are selected nearest-in-time first; ties in dt are broken
+    by freq_bin (ascending) to guarantee determinism.
+
+    Hash encoding (bit-packed integer, 34 bits total):
+        hash = (f1 << 22) | (f2 << 10) | dt
+        where f1, f2 are clamped to 12 bits and dt to 10 bits.
+    Pairs whose values exceed the bit-field limits are silently skipped.
+
+    Args:
+        peaks: List of (freq_bin, time_frame) tuples sorted by (time_frame, freq_bin).
+
+    Returns:
+        List of (hash_value, anchor_time_frame) tuples sorted by
+        (anchor_time_frame, hash_value).
+    """
+    min_dt: int = settings.MIN_DELTA_T
+    max_dt: int = min(settings.MAX_DELTA_T, _DT_MAX)  # clamp to bit-field limit
+    fan_out: int = settings.FAN_OUT
+
+    results: list[tuple[int, int]] = []
+
+    n = len(peaks)
+    for anchor_idx in range(n):
+        f1, t1 = peaks[anchor_idx]
+        if f1 > _F_MAX:
+            # anchor freq bin overflows 12 bits — skip
+            continue
+
+        # Collect candidates: peaks after anchor within [MIN_DELTA_T, max_dt]
+        # They are already sorted by (time_frame, freq_bin), so we scan forward.
+        candidates: list[tuple[int, int, int]] = []  # (dt, f2, target_idx)
+        for target_idx in range(anchor_idx + 1, n):
+            f2, t2 = peaks[target_idx]
+            dt = t2 - t1
+            if dt < min_dt:
+                continue  # same or too-close frame (shouldn't happen with sorted input)
+            if dt > max_dt:
+                break  # peaks are time-sorted; no further target can qualify
+            if f2 > _F_MAX:
+                continue  # target freq bin overflows 12 bits
+            candidates.append((dt, f2, target_idx))
+
+        # Sort candidates: nearest-in-time first, break ties by freq_bin
+        candidates.sort(key=lambda c: (c[0], c[1]))
+
+        # Take up to FAN_OUT
+        for dt, f2, _ in candidates[:fan_out]:
+            hash_val = (f1 << (_F_BITS + _DT_BITS)) | (f2 << _DT_BITS) | dt
+            results.append((hash_val, t1))
+
+    # Deterministic output order: primary key anchor_time_frame, secondary hash_value
+    results.sort(key=lambda r: (r[1], r[0]))
+    return results
+
+
+def fingerprint_hashes(source: str | Path | bytes) -> list[tuple[int, int]]:
+    """Convenience pipeline: load audio -> peaks -> hashes.
+
+    Args:
+        source: Audio file path (str or Path) or raw audio bytes.
+
+    Returns:
+        List of (hash_value, anchor_time_frame) tuples sorted by
+        (anchor_time_frame, hash_value).
+    """
+    peaks = fingerprint_peaks(source)
+    return generate_hashes(peaks)
+
