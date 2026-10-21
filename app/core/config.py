@@ -4,6 +4,7 @@ All magic numbers live here (AGENT.md Rule 2).
 Values are overridable via environment variables or a .env file.
 """
 
+# pyrefly: ignore[missing-import]
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -89,7 +90,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------ #
 
     DATABASE_URL: str = (
-        "postgresql://insa_user:secure_password@localhost:5432/audio_signature_db"
+        "postgresql://insa_user:secure_password@localhost:5433/audio_signature_db"
     )
     """SQLAlchemy connection string.  Override via DATABASE_URL env var or
     .env file.  Never hardcode credentials in source."""
