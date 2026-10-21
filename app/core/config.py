@@ -111,6 +111,9 @@ class Settings(BaseSettings):
     STRONG_SCORE: int = 30
     """Score threshold for classifying match strength as 'strong' vs 'weak'."""
 
+    CORS_ORIGINS: str = "*"
+    """Allowed CORS origins (comma-separated or '*' for all)."""
+
 
 # Module-level singleton — import this everywhere instead of instantiating
 # Settings() repeatedly.
