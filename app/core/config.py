@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     # Hash generation                                                      #
     # ------------------------------------------------------------------ #
 
-    FAN_OUT: int = 5
+    FAN_OUT: int = 10
     """Number of target peaks paired with each anchor peak.
     Higher fan-out → more hashes → more robust matching, more DB space."""
 

@@ -78,10 +78,9 @@ def test_settings_hop_length() -> None:
 
 
 def test_settings_fan_out() -> None:
-    """Default FAN_OUT must be 5."""
+    """Default FAN_OUT is 10 (chosen via parameter sweep, see docs/testing.md)."""
     from app.core.config import Settings
-
-    assert Settings().FAN_OUT == 5
+    assert Settings().FAN_OUT == 10
 
 
 def test_settings_min_match_score() -> None:
