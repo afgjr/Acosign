@@ -9,6 +9,11 @@ from app.engine.fingerprint import (
     generate_hashes,
     load_audio,
 )
+from app.engine.matcher import (
+    MatchResult,
+    find_best_match,
+    rank_matches,
+)
 
 __all__ = [
     "AudioDecodeError",
@@ -18,4 +23,8 @@ __all__ = [
     "fingerprint_peaks",
     "generate_hashes",
     "fingerprint_hashes",
+    "MatchResult",
+    "find_best_match",
+    "rank_matches",
 ]
+
