@@ -95,6 +95,22 @@ class Settings(BaseSettings):
     """SQLAlchemy connection string.  Override via DATABASE_URL env var or
     .env file.  Never hardcode credentials in source."""
 
+    # ------------------------------------------------------------------ #
+    # API & Thresholds (P2.3 / P2.4)                                       #
+    # ------------------------------------------------------------------ #
+
+    MAX_UPLOAD_MB: int = 25
+    """Maximum allowed file upload size in megabytes."""
+
+    DUPLICATE_SCORE: int = 200
+    """Minimum score on full-track matching to reject duplicate registrations (409 Conflict)."""
+
+    MIN_QUERY_SECONDS: float = 3.0
+    """Minimum duration in seconds for query clips in identification."""
+
+    STRONG_SCORE: int = 30
+    """Score threshold for classifying match strength as 'strong' vs 'weak'."""
+
 
 # Module-level singleton — import this everywhere instead of instantiating
 # Settings() repeatedly.
