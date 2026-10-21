@@ -275,10 +275,154 @@ def test_missing_required_fields_returns_422(
     assert res_no_file.status_code == 422
 
 
-def test_health_endpoint_still_works(
-    client: TestClient,
+def test_health_endpoint_reports_database_ok_and_unreachable(
+    client: TestClient, db_session: Session
 ) -> None:
-    """GET /health continues to return 200 OK."""
+    """GET /health reports status 'ok' and database 'ok' (or 'unreachable') without raising."""
+    # 1. Normal state with working database
     res = client.get("/health")
     assert res.status_code == 200
-    assert res.json()["status"] == "ok"
+    data = res.json()
+    assert data["status"] == "ok"
+    assert data["database"] == "ok"
+
+    # 2. Database connectivity failure (simulated)
+    # Monkeypatch execute on db_session to raise an exception
+    def _failing_execute(*args, **kwargs):
+        raise RuntimeError("Simulated DB connection failure")
+
+    orig_execute = db_session.execute
+    try:
+        db_session.execute = _failing_execute
+        res_fail = client.get("/health")
+        assert res_fail.status_code == 200
+        fail_data = res_fail.json()
+        assert fail_data["status"] == "ok"
+        assert fail_data["database"] == "unreachable"
+    finally:
+        db_session.execute = orig_execute
+
+
+def test_list_tracks_pagination_and_limit_capped(
+    client: TestClient,
+) -> None:
+    """GET /tracks supports pagination and caps limit at 100."""
+    # Register 3 tracks with distinct audio frequencies so deduplication does not trigger
+    for i in range(3):
+        base_f = 200 + i * 350
+        chords = [[base_f, base_f * 1.25, base_f * 1.5, base_f * 2.0]] * 4
+        wav_bytes = _generate_wav(duration=4.0, freqs=chords)
+        reg_res = client.post(
+            "/register",
+            data={"title": f"Pagination Track {i}", "owner": "Artist"},
+            files={"file": (f"track_{i}.wav", wav_bytes, "audio/wav")},
+        )
+        assert reg_res.status_code == 201
+
+    # Page 1: limit 2, offset 0 -> 2 tracks
+    res1 = client.get("/tracks?limit=2&offset=0")
+    assert res1.status_code == 200
+    tracks1 = res1.json()
+    assert len(tracks1) == 2
+
+    # Page 2: limit 2, offset 2 -> 1 track
+    res2 = client.get("/tracks?limit=2&offset=2")
+    assert res2.status_code == 200
+    tracks2 = res2.json()
+    assert len(tracks2) == 1
+    assert tracks2[0]["content_id"] not in [t["content_id"] for t in tracks1]
+
+    # Limit capped at 100: passing limit=500 does not error and returns tracks
+    res_capped = client.get("/tracks?limit=500&offset=0")
+    assert res_capped.status_code == 200
+    assert len(res_capped.json()) == 3
+
+
+def test_get_track_by_content_id_success_and_not_found(
+    client: TestClient,
+) -> None:
+    """GET /tracks/{content_id} returns track details or 404 for unknown content_id."""
+    wav_bytes = _generate_wav(duration=4.0)
+    reg_res = client.post(
+        "/register",
+        data={"title": "Single Track", "owner": "Solo Artist"},
+        files={"file": ("single.wav", wav_bytes, "audio/wav")},
+    )
+    content_id = reg_res.json()["content_id"]
+
+    # Found
+    res = client.get(f"/tracks/{content_id}")
+    assert res.status_code == 200
+    payload = res.json()
+    assert payload["content_id"] == content_id
+    assert payload["title"] == "Single Track"
+    assert payload["owner"] == "Solo Artist"
+
+    # Unknown content_id -> 404
+    res_404 = client.get("/tracks/nonexistent_content_id_123")
+    assert res_404.status_code == 404
+    assert "not found" in res_404.text.lower()
+
+
+def test_delete_track_then_identify_returns_matched_false(
+    client: TestClient,
+) -> None:
+    """DELETE /tracks/{content_id} deletes track and cascading fingerprints; clip now fails to match."""
+    full_wav = _generate_wav(duration=8.0)
+    reg_res = client.post(
+        "/register",
+        data={"title": "To Be Deleted", "owner": "Ephemeral"},
+        files={"file": ("to_delete.wav", full_wav, "audio/wav")},
+    )
+    content_id = reg_res.json()["content_id"]
+
+    # Verify query clip matches before deletion
+    clip_wav = _slice_wav(full_wav, start_sec=2.0, duration_sec=4.0)
+    id_before = client.post("/identify", files={"file": ("clip.wav", clip_wav, "audio/wav")})
+    assert id_before.status_code == 200
+    assert id_before.json()["matched"] is True
+
+    # Delete track -> 204 No Content
+    del_res = client.delete(f"/tracks/{content_id}")
+    assert del_res.status_code == 204
+    assert del_res.text == ""
+
+    # GET /tracks/{content_id} now returns 404
+    get_after = client.get(f"/tracks/{content_id}")
+    assert get_after.status_code == 404
+
+    # Identify of the same clip now returns matched=False
+    id_after = client.post("/identify", files={"file": ("clip.wav", clip_wav, "audio/wav")})
+    assert id_after.status_code == 200
+    assert id_after.json()["matched"] is False
+
+
+def test_delete_unknown_track_returns_404(
+    client: TestClient,
+) -> None:
+    """DELETE /tracks/{content_id} with unknown content_id returns 404."""
+    res = client.delete("/tracks/unknown_content_id_999")
+    assert res.status_code == 404
+    assert "not found" in res.text.lower()
+
+
+def test_global_exception_handler_returns_500_without_stacktrace(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unexpected internal server errors return 500 JSON without leaking stack traces."""
+    # Force an unhandled RuntimeError inside an endpoint
+    from app.api import routes
+
+    def _crash(*args, **kwargs):
+        raise RuntimeError("Sensitive internal database connection failure with credentials")
+
+    monkeypatch.setattr(routes, "list_tracks", _crash)
+
+    test_client = TestClient(client.app, raise_server_exceptions=False)
+    res = test_client.get("/tracks")
+    assert res.status_code == 500
+    assert res.json() == {"detail": "Internal error"}
+    # Ensure raw exception text/stack trace was not leaked to client
+    assert "Sensitive" not in res.text
+    assert "RuntimeError" not in res.text
+    assert "credentials" not in res.text

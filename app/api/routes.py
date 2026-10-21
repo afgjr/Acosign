@@ -2,18 +2,31 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.concurrency import run_in_threadpool
 import numpy as np
 from sqlalchemy.orm import Session
 
-from app.api.schemas import IdentifyResponse, RegisterResponse
+from app.api.schemas import IdentifyResponse, RegisterResponse, TrackOut
 from app.core.config import settings
 from app.db.repository import (
     add_fingerprints,
     create_track,
+    delete_track,
     find_hits,
     get_track,
+    get_track_by_content_id,
+    list_tracks,
 )
 from app.db.session import get_db
 from app.engine.fingerprint import (
@@ -183,3 +196,61 @@ async def identify(
         match_strength=match_strength,
         offset_seconds=offset_seconds,
     )
+
+
+@router.get(
+    "/tracks",
+    response_model=list[TrackOut],
+    status_code=status.HTTP_200_OK,
+    summary="List registered tracks with pagination",
+)
+def list_registered_tracks(
+    limit: int = Query(default=20, ge=1),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+) -> list[TrackOut]:
+    """List registered tracks with offset-based pagination. Maximum limit is capped at 100."""
+    effective_limit = min(limit, 100)
+    tracks = list_tracks(db, limit=effective_limit, offset=offset)
+    return [TrackOut.model_validate(t) for t in tracks]
+
+
+@router.get(
+    "/tracks/{content_id}",
+    response_model=TrackOut,
+    status_code=status.HTTP_200_OK,
+    summary="Get track by Content ID",
+)
+def get_track_by_id(
+    content_id: str,
+    db: Session = Depends(get_db),
+) -> TrackOut:
+    """Retrieve metadata for a specific registered track by its unique Content ID."""
+    track = get_track_by_content_id(db, content_id)
+    if track is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Track with Content ID '{content_id}' not found",
+        )
+    return TrackOut.model_validate(track)
+
+
+@router.delete(
+    "/tracks/{content_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    summary="Delete track by Content ID",
+)
+def delete_track_by_id(
+    content_id: str,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Delete a registered track and all of its associated fingerprints."""
+    track = get_track_by_content_id(db, content_id)
+    if track is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Track with Content ID '{content_id}' not found",
+        )
+    delete_track(db, track.id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
