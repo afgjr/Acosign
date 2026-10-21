@@ -1,0 +1,284 @@
+"""Integration tests for FastAPI endpoints POST /register and POST /identify (P2.4).
+
+Uses TestClient with an in-memory SQLite database override (no PostgreSQL).
+All audio test data is generated synthetically using numpy and soundfile.
+"""
+
+from __future__ import annotations
+
+import io
+from fastapi.testclient import TestClient
+import numpy as np
+import pytest
+from sqlalchemy.orm import Session
+import soundfile as sf
+
+from app.core.config import settings
+from app.db.models import Track
+
+
+def _generate_wav(duration: float = 8.0, freqs: list[list[float]] | None = None) -> bytes:
+    """Generate a multi-tone harmonic WAV in memory."""
+    sr = settings.SAMPLE_RATE
+    total_samples = int(sr * duration)
+    t = np.linspace(0, duration, total_samples, endpoint=False, dtype=np.float32)
+    audio = np.zeros_like(t)
+
+    chord_list = freqs or [
+        [261, 329, 392, 523, 659],
+        [293, 369, 440, 587, 739],
+        [329, 415, 493, 659, 830],
+        [349, 440, 523, 698, 880],
+        [392, 493, 587, 783, 987],
+        [440, 554, 659, 880, 1108],
+        [493, 622, 739, 987, 1244],
+        [523, 659, 783, 1046, 1318],
+        [587, 739, 880, 1174, 1479],
+        [659, 830, 987, 1318, 1661],
+    ]
+
+    for sec_i, chord in enumerate(chord_list):
+        s_idx = int(sec_i * sr)
+        e_idx = min(int((sec_i + 1) * sr), total_samples)
+        if s_idx >= total_samples:
+            break
+        t_sec = t[s_idx:e_idx]
+        sig = np.zeros_like(t_sec)
+        for k, f in enumerate(chord):
+            mod = 1.0 + 0.05 * np.sin(2.0 * np.pi * 5.0 * t_sec)
+            sig += (1.0 / (k + 1)) * np.sin(2.0 * np.pi * f * mod * t_sec)
+        audio[s_idx:e_idx] = sig
+
+    max_val = float(np.max(np.abs(audio)))
+    if max_val > 0:
+        audio = audio / max_val
+
+    buf = io.BytesIO()
+    sf.write(buf, audio, sr, format="WAV")
+    return buf.getvalue()
+
+
+def _slice_wav(full_wav_bytes: bytes, start_sec: float, duration_sec: float) -> bytes:
+    """Slice a portion of WAV audio bytes."""
+    data, sr = sf.read(io.BytesIO(full_wav_bytes), dtype="float32")
+    s_idx = int(round(start_sec * sr))
+    e_idx = s_idx + int(round(duration_sec * sr))
+    sliced = data[s_idx:e_idx]
+
+    buf = io.BytesIO()
+    sf.write(buf, sliced, sr, format="WAV")
+    return buf.getvalue()
+
+
+def test_register_track_success_and_stored_in_db(
+    client: TestClient, db_session: Session
+) -> None:
+    """POST /register returns 201 and a content_id; track appears in the database."""
+    wav_bytes = _generate_wav(duration=6.0)
+
+    res = client.post(
+        "/register",
+        data={"title": "Test Symphony", "owner": "Alice"},
+        files={"file": ("test.wav", wav_bytes, "audio/wav")},
+    )
+
+    assert res.status_code == 201
+    payload = res.json()
+    assert "content_id" in payload
+    assert payload["title"] == "Test Symphony"
+    assert payload["owner"] == "Alice"
+    assert payload["duration_seconds"] > 5.0
+    assert payload["hashes_stored"] > 0
+
+    # Verify track exists in database
+    track = db_session.get(Track, payload["track_id"])
+    assert track is not None
+    assert track.content_id == payload["content_id"]
+    assert track.title == "Test Symphony"
+
+
+def test_identify_middle_clip_matched_true_with_metadata(
+    client: TestClient,
+) -> None:
+    """POST /identify with a middle clip returns matched=true with correct title/owner."""
+    full_wav = _generate_wav(duration=10.0)
+
+    # Register track first
+    reg_res = client.post(
+        "/register",
+        data={"title": "Master Track", "owner": "Producer X"},
+        files={"file": ("master.wav", full_wav, "audio/wav")},
+    )
+    assert reg_res.status_code == 201
+    content_id = reg_res.json()["content_id"]
+
+    # Extract a 4-second middle clip from 3.0s to 7.0s
+    clip_wav = _slice_wav(full_wav, start_sec=3.0, duration_sec=4.0)
+
+    id_res = client.post(
+        "/identify",
+        files={"file": ("clip.wav", clip_wav, "audio/wav")},
+    )
+
+    assert id_res.status_code == 200
+    payload = id_res.json()
+    assert payload["matched"] is True
+    assert payload["content_id"] == content_id
+    assert payload["title"] == "Master Track"
+    assert payload["owner"] == "Producer X"
+    assert payload["score"] >= settings.MIN_MATCH_SCORE
+    assert payload["match_strength"] in ("strong", "weak")
+    assert abs(payload["offset_seconds"] - 3.0) < 0.5
+
+
+def test_identify_unrelated_audio_returns_matched_false(
+    client: TestClient,
+) -> None:
+    """POST /identify on unrelated audio returns matched=false with 200 OK (never 404)."""
+    full_wav = _generate_wav(duration=8.0)
+    client.post(
+        "/register",
+        data={"title": "Known Song", "owner": "Known Artist"},
+        files={"file": ("known.wav", full_wav, "audio/wav")},
+    )
+
+    # Generate completely unrelated audio (different frequencies)
+    unrelated_chords = [
+        [150, 225, 337],
+        [160, 240, 360],
+        [170, 255, 382],
+        [180, 270, 405],
+    ]
+    unrelated_wav = _generate_wav(duration=4.0, freqs=unrelated_chords)
+
+    res = client.post(
+        "/identify",
+        files={"file": ("unrelated.wav", unrelated_wav, "audio/wav")},
+    )
+
+    assert res.status_code == 200
+    payload = res.json()
+    assert payload["matched"] is False
+    assert payload["content_id"] is None
+    assert payload["title"] is None
+    assert payload["owner"] is None
+
+
+def test_bad_inputs_empty_garbage_and_short_clip_return_400(
+    client: TestClient,
+) -> None:
+    """Empty file, garbage bytes, and a clip < 3s all return 400 with a clear message."""
+    # 1. Empty file
+    res_empty_reg = client.post(
+        "/register",
+        data={"title": "Empty", "owner": "Tester"},
+        files={"file": ("empty.wav", b"", "audio/wav")},
+    )
+    assert res_empty_reg.status_code == 400
+    assert "empty" in res_empty_reg.text.lower()
+
+    res_empty_id = client.post(
+        "/identify",
+        files={"file": ("empty.wav", b"", "audio/wav")},
+    )
+    assert res_empty_id.status_code == 400
+    assert "empty" in res_empty_id.text.lower()
+
+    # 2. Garbage non-audio bytes
+    garbage = b"THIS_IS_NOT_AN_AUDIO_FILE_JUST_RANDOM_GARBAGE"
+    res_garbage_reg = client.post(
+        "/register",
+        data={"title": "Garbage", "owner": "Tester"},
+        files={"file": ("garbage.wav", garbage, "audio/wav")},
+    )
+    assert res_garbage_reg.status_code == 400
+    assert "decoding failed" in res_garbage_reg.text.lower()
+
+    res_garbage_id = client.post(
+        "/identify",
+        files={"file": ("garbage.wav", garbage, "audio/wav")},
+    )
+    assert res_garbage_id.status_code == 400
+
+    # 3. Clip shorter than MIN_QUERY_SECONDS (2.0s < 3.0s)
+    short_wav = _generate_wav(duration=2.0)
+    res_short = client.post(
+        "/identify",
+        files={"file": ("short.wav", short_wav, "audio/wav")},
+    )
+    assert res_short.status_code == 400
+    assert "shorter than minimum" in res_short.text.lower()
+
+
+def test_oversized_upload_returns_413(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Upload exceeding MAX_UPLOAD_MB returns 413 Payload Too Large."""
+    # Set MAX_UPLOAD_MB to 1 MB for fast test execution
+    monkeypatch.setattr(settings, "MAX_UPLOAD_MB", 1)
+
+    oversized_data = b"0" * (1024 * 1024 + 1024)  # 1 MB + 1 KB
+
+    res = client.post(
+        "/register",
+        data={"title": "Too Big", "owner": "Tester"},
+        files={"file": ("big.wav", oversized_data, "audio/wav")},
+    )
+    assert res.status_code == 413
+    assert "exceeds maximum size" in res.text.lower()
+
+
+def test_register_same_audio_twice_returns_409(
+    client: TestClient,
+) -> None:
+    """Registering the same audio twice returns 409 Conflict with the existing content_id."""
+    wav_bytes = _generate_wav(duration=8.0)
+
+    # First registration
+    res1 = client.post(
+        "/register",
+        data={"title": "Original Track", "owner": "Artist 1"},
+        files={"file": ("track.wav", wav_bytes, "audio/wav")},
+    )
+    assert res1.status_code == 201
+    existing_content_id = res1.json()["content_id"]
+
+    # Second registration with the exact same audio
+    res2 = client.post(
+        "/register",
+        data={"title": "Duplicate Upload", "owner": "Artist 2"},
+        files={"file": ("duplicate.wav", wav_bytes, "audio/wav")},
+    )
+    assert res2.status_code == 409
+    assert existing_content_id in res2.text
+
+
+def test_missing_required_fields_returns_422(
+    client: TestClient,
+) -> None:
+    """Missing required multipart form fields returns 422 Unprocessable Entity."""
+    wav_bytes = _generate_wav(duration=4.0)
+
+    # Missing title
+    res_no_title = client.post(
+        "/register",
+        data={"owner": "Artist"},
+        files={"file": ("track.wav", wav_bytes, "audio/wav")},
+    )
+    assert res_no_title.status_code == 422
+
+    # Missing file
+    res_no_file = client.post(
+        "/register",
+        data={"title": "Song", "owner": "Artist"},
+    )
+    assert res_no_file.status_code == 422
+
+
+def test_health_endpoint_still_works(
+    client: TestClient,
+) -> None:
+    """GET /health continues to return 200 OK."""
+    res = client.get("/health")
+    assert res.status_code == 200
+    assert res.json()["status"] == "ok"
