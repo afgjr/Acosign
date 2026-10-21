@@ -1,5 +1,4 @@
-
-<h1 align="center">[Project Name Undecided]</h1>
+<h1 align="center">Acosign</h1>
 
 <p align="center">
   <b>Audio Digital Signature & Content ID Platform</b><br>
@@ -12,7 +11,7 @@
 
 | Name | ID | GitHub | Role |
 |------|----|--------|------|
-| **Abel Fekede** | CTC-5298-26 | [@afgjr](https://github.com/afgjr) | Full stack  Developer |
+| **Abel Fekede** | CTC-5298-26 | [@afgjr](https://github.com/afgjr) | Full Stack Developer |
 
 ---
 
@@ -36,6 +35,66 @@ Once registered, the platform provides an **API** so that users, apps, or platfo
 
 ---
 
+## 🚀 Quick Start
+
+> **Note:** Full containerized deployment via Docker Compose will be detailed here once the Docker service stack setup is finalized.
+
+```bash
+# Clone the repository
+git clone https://github.com/afgjr/Acosign.git
+cd Acosign
+
+# Copy environment file
+cp .env.example .env
+
+# Run services with Docker Compose (coming in Phase 3)
+# docker compose up -d
+```
+
+---
+
+## 📡 API Overview
+
+Acosign provides a REST API built with FastAPI for track registration, query identification, catalog management, and system health checks.
+
+- **`GET /health`**: Health check reporting service status and database connectivity.
+- **`POST /register`**: Upload an audio file, extract fingerprints, store them in the database, and return a unique `content_id`.
+- **`POST /identify`**: Upload an unknown audio clip (minimum 3.0s) to identify matching registered tracks via peak offset alignment voting.
+- **`GET /tracks`**: List registered tracks with pagination (`limit` capped at 100, `offset`).
+- **`GET /tracks/{content_id}`**: Retrieve metadata for a specific registered track.
+- **`DELETE /tracks/{content_id}`**: Delete a track and cascade-remove all associated fingerprint hashes.
+
+For detailed request/response schemas, error status codes, and `curl` examples, refer to [docs/api.md](docs/api.md).
+
+---
+
+## 🎵 Supported Audio Formats
+
+- **Officially Supported:** `MP3` and `WAV` (native decoding via SoundFile/librosa).
+- **Conditional Support:** `M4A` (works only when `ffmpeg` is installed on the host system or container).
+
+---
+
+## ⚠️ Known Limits
+
+- **Acoustic Noise Degradation:** Under heavy background noise (SNR 10 dB), short 5-second clips achieve ~77% identification accuracy.
+- **Minimum Query Length:** Query clips require at least 3.0 seconds of audio to extract sufficient landmark pairs for reliable identification.
+- **Single-Track Baseline:** Robustness benchmarks to date were evaluated on single-track baselines; see [docs/testing.md](docs/testing.md) for full benchmark tables and parameter evaluations.
+
+---
+
+## 🧪 Testing
+
+The test suite contains pure unit tests and integration tests using synthetic, deterministically generated multi-tone audio (using an in-memory SQLite database override).
+
+To run the full test suite:
+
+```bash
+python -m pytest -q
+```
+
+---
+
 ## 🎯 Use Cases
 
 - **Royalty Tracking:** Check when and where registered audio is being played.
@@ -48,9 +107,6 @@ Once registered, the platform provides an **API** so that users, apps, or platfo
 
 - **Backend / API:** FastAPI (Python)
 - **Audio Processing:** Librosa / NumPy / SciPy
-- **Database:** PostgreSQL
+- **Database:** PostgreSQL (SQLAlchemy 2.0)
 - **Frontend / Demo:** Streamlit
 - **Deployment:** Docker & Docker Compose
-
----
-
