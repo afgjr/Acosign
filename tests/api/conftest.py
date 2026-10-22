@@ -10,9 +10,16 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.config import settings
 from app.db.models import Base
 from app.db.session import get_db
 from app.main import app
+
+
+@pytest.fixture(autouse=True)
+def configure_admin_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Configure default ADMIN_API_KEY for tests."""
+    monkeypatch.setattr(settings, "ADMIN_API_KEY", "test-admin-key")
 
 
 @pytest.fixture

@@ -17,6 +17,7 @@ from fastapi.concurrency import run_in_threadpool
 import numpy as np
 from sqlalchemy.orm import Session
 
+from app.api.auth import require_admin
 from app.api.schemas import IdentifyResponse, RegisterResponse, TrackOut
 from app.core.config import settings
 from app.db.repository import (
@@ -57,6 +58,7 @@ def _process_audio_bytes(
     "/register",
     response_model=RegisterResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
     summary="Register audio track and store fingerprints",
 )
 async def register(
@@ -239,6 +241,7 @@ def get_track_by_id(
     "/tracks/{content_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
+    dependencies=[Depends(require_admin)],
     summary="Delete track by Content ID",
 )
 def delete_track_by_id(

@@ -70,6 +70,9 @@ def _slice_wav(full_wav_bytes: bytes, start_sec: float, duration_sec: float) -> 
     return buf.getvalue()
 
 
+ADMIN_HEADERS = {"X-API-Key": "test-admin-key"}
+
+
 def test_register_track_success_and_stored_in_db(
     client: TestClient, db_session: Session
 ) -> None:
@@ -80,6 +83,7 @@ def test_register_track_success_and_stored_in_db(
         "/register",
         data={"title": "Test Symphony", "owner": "Alice"},
         files={"file": ("test.wav", wav_bytes, "audio/wav")},
+        headers=ADMIN_HEADERS,
     )
 
     assert res.status_code == 201
@@ -108,6 +112,7 @@ def test_identify_middle_clip_matched_true_with_metadata(
         "/register",
         data={"title": "Master Track", "owner": "Producer X"},
         files={"file": ("master.wav", full_wav, "audio/wav")},
+        headers=ADMIN_HEADERS,
     )
     assert reg_res.status_code == 201
     content_id = reg_res.json()["content_id"]
@@ -140,6 +145,7 @@ def test_identify_unrelated_audio_returns_matched_false(
         "/register",
         data={"title": "Known Song", "owner": "Known Artist"},
         files={"file": ("known.wav", full_wav, "audio/wav")},
+        headers=ADMIN_HEADERS,
     )
 
     # Generate completely unrelated audio (different frequencies)
@@ -173,6 +179,7 @@ def test_bad_inputs_empty_garbage_and_short_clip_return_400(
         "/register",
         data={"title": "Empty", "owner": "Tester"},
         files={"file": ("empty.wav", b"", "audio/wav")},
+        headers=ADMIN_HEADERS,
     )
     assert res_empty_reg.status_code == 400
     assert "empty" in res_empty_reg.text.lower()
@@ -190,6 +197,7 @@ def test_bad_inputs_empty_garbage_and_short_clip_return_400(
         "/register",
         data={"title": "Garbage", "owner": "Tester"},
         files={"file": ("garbage.wav", garbage, "audio/wav")},
+        headers=ADMIN_HEADERS,
     )
     assert res_garbage_reg.status_code == 400
     assert "decoding failed" in res_garbage_reg.text.lower()
@@ -223,6 +231,7 @@ def test_oversized_upload_returns_413(
         "/register",
         data={"title": "Too Big", "owner": "Tester"},
         files={"file": ("big.wav", oversized_data, "audio/wav")},
+        headers=ADMIN_HEADERS,
     )
     assert res.status_code == 413
     assert "exceeds maximum size" in res.text.lower()
@@ -239,6 +248,7 @@ def test_register_same_audio_twice_returns_409(
         "/register",
         data={"title": "Original Track", "owner": "Artist 1"},
         files={"file": ("track.wav", wav_bytes, "audio/wav")},
+        headers=ADMIN_HEADERS,
     )
     assert res1.status_code == 201
     existing_content_id = res1.json()["content_id"]
@@ -248,6 +258,7 @@ def test_register_same_audio_twice_returns_409(
         "/register",
         data={"title": "Duplicate Upload", "owner": "Artist 2"},
         files={"file": ("duplicate.wav", wav_bytes, "audio/wav")},
+        headers=ADMIN_HEADERS,
     )
     assert res2.status_code == 409
     assert existing_content_id in res2.text
@@ -264,6 +275,7 @@ def test_missing_required_fields_returns_422(
         "/register",
         data={"owner": "Artist"},
         files={"file": ("track.wav", wav_bytes, "audio/wav")},
+        headers=ADMIN_HEADERS,
     )
     assert res_no_title.status_code == 422
 
@@ -271,6 +283,7 @@ def test_missing_required_fields_returns_422(
     res_no_file = client.post(
         "/register",
         data={"title": "Song", "owner": "Artist"},
+        headers=ADMIN_HEADERS,
     )
     assert res_no_file.status_code == 422
 
@@ -316,6 +329,7 @@ def test_list_tracks_pagination_and_limit_capped(
             "/register",
             data={"title": f"Pagination Track {i}", "owner": "Artist"},
             files={"file": (f"track_{i}.wav", wav_bytes, "audio/wav")},
+            headers=ADMIN_HEADERS,
         )
         assert reg_res.status_code == 201
 
@@ -347,6 +361,7 @@ def test_get_track_by_content_id_success_and_not_found(
         "/register",
         data={"title": "Single Track", "owner": "Solo Artist"},
         files={"file": ("single.wav", wav_bytes, "audio/wav")},
+        headers=ADMIN_HEADERS,
     )
     content_id = reg_res.json()["content_id"]
 
@@ -373,6 +388,7 @@ def test_delete_track_then_identify_returns_matched_false(
         "/register",
         data={"title": "To Be Deleted", "owner": "Ephemeral"},
         files={"file": ("to_delete.wav", full_wav, "audio/wav")},
+        headers=ADMIN_HEADERS,
     )
     content_id = reg_res.json()["content_id"]
 
@@ -383,7 +399,7 @@ def test_delete_track_then_identify_returns_matched_false(
     assert id_before.json()["matched"] is True
 
     # Delete track -> 204 No Content
-    del_res = client.delete(f"/tracks/{content_id}")
+    del_res = client.delete(f"/tracks/{content_id}", headers=ADMIN_HEADERS)
     assert del_res.status_code == 204
     assert del_res.text == ""
 
@@ -401,7 +417,7 @@ def test_delete_unknown_track_returns_404(
     client: TestClient,
 ) -> None:
     """DELETE /tracks/{content_id} with unknown content_id returns 404."""
-    res = client.delete("/tracks/unknown_content_id_999")
+    res = client.delete("/tracks/unknown_content_id_999", headers=ADMIN_HEADERS)
     assert res.status_code == 404
     assert "not found" in res.text.lower()
 
@@ -426,3 +442,121 @@ def test_global_exception_handler_returns_500_without_stacktrace(
     assert "Sensitive" not in res.text
     assert "RuntimeError" not in res.text
     assert "credentials" not in res.text
+
+
+def test_register_without_key_returns_401(client: TestClient) -> None:
+    """POST /register without X-API-Key header returns 401 Unauthorized."""
+    wav_bytes = _generate_wav(duration=4.0)
+    res = client.post(
+        "/register",
+        data={"title": "No Key Track", "owner": "Artist"},
+        files={"file": ("track.wav", wav_bytes, "audio/wav")},
+    )
+    assert res.status_code == 401
+    assert res.json() == {"detail": "Invalid or missing admin key"}
+
+
+def test_register_with_wrong_key_returns_401(client: TestClient) -> None:
+    """POST /register with invalid X-API-Key returns 401 Unauthorized."""
+    wav_bytes = _generate_wav(duration=4.0)
+    res = client.post(
+        "/register",
+        data={"title": "Wrong Key Track", "owner": "Artist"},
+        files={"file": ("track.wav", wav_bytes, "audio/wav")},
+        headers={"X-API-Key": "incorrect-secret-key"},
+    )
+    assert res.status_code == 401
+    assert res.json() == {"detail": "Invalid or missing admin key"}
+
+
+def test_register_with_right_key_returns_201(client: TestClient) -> None:
+    """POST /register with valid X-API-Key returns 201 Created."""
+    wav_bytes = _generate_wav(duration=4.0)
+    res = client.post(
+        "/register",
+        data={"title": "Auth Track", "owner": "Artist"},
+        files={"file": ("track.wav", wav_bytes, "audio/wav")},
+        headers=ADMIN_HEADERS,
+    )
+    assert res.status_code == 201
+    assert "content_id" in res.json()
+
+
+def test_delete_without_key_returns_401(client: TestClient) -> None:
+    """DELETE /tracks/{content_id} without X-API-Key returns 401 Unauthorized."""
+    res = client.delete("/tracks/some-content-id")
+    assert res.status_code == 401
+    assert res.json() == {"detail": "Invalid or missing admin key"}
+
+
+def test_empty_admin_api_key_returns_503_for_register_and_delete(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When ADMIN_API_KEY is empty/unset, admin endpoints fail closed with 503."""
+    monkeypatch.setattr(settings, "ADMIN_API_KEY", "")
+
+    wav_bytes = _generate_wav(duration=4.0)
+    # 1. Register with header -> 503
+    res_reg = client.post(
+        "/register",
+        data={"title": "Track", "owner": "Artist"},
+        files={"file": ("track.wav", wav_bytes, "audio/wav")},
+        headers=ADMIN_HEADERS,
+    )
+    assert res_reg.status_code == 503
+    assert res_reg.json() == {"detail": "Admin key not configured"}
+
+    # 2. Register without header -> 503 (fails closed before checking header)
+    res_reg_no_hdr = client.post(
+        "/register",
+        data={"title": "Track", "owner": "Artist"},
+        files={"file": ("track.wav", wav_bytes, "audio/wav")},
+    )
+    assert res_reg_no_hdr.status_code == 503
+    assert res_reg_no_hdr.json() == {"detail": "Admin key not configured"}
+
+    # 3. Delete with header -> 503
+    res_del = client.delete("/tracks/some-id", headers=ADMIN_HEADERS)
+    assert res_del.status_code == 503
+    assert res_del.json() == {"detail": "Admin key not configured"}
+
+    # 4. Delete without header -> 503
+    res_del_no_hdr = client.delete("/tracks/some-id")
+    assert res_del_no_hdr.status_code == 503
+    assert res_del_no_hdr.json() == {"detail": "Admin key not configured"}
+
+
+def test_public_endpoints_identify_and_get_tracks_work_without_key(
+    client: TestClient,
+) -> None:
+    """POST /identify and GET /tracks remain public and require no admin key."""
+    # Register a track using admin key so we have data
+    wav_bytes = _generate_wav(duration=6.0)
+    reg_res = client.post(
+        "/register",
+        data={"title": "Public Check Track", "owner": "Artist"},
+        files={"file": ("track.wav", wav_bytes, "audio/wav")},
+        headers=ADMIN_HEADERS,
+    )
+    assert reg_res.status_code == 201
+    cid = reg_res.json()["content_id"]
+
+    # GET /tracks without any header -> 200
+    res_list = client.get("/tracks")
+    assert res_list.status_code == 200
+    assert any(t["content_id"] == cid for t in res_list.json())
+
+    # GET /tracks/{content_id} without any header -> 200
+    res_get = client.get(f"/tracks/{cid}")
+    assert res_get.status_code == 200
+    assert res_get.json()["content_id"] == cid
+
+    # POST /identify without any header -> 200
+    clip_bytes = _slice_wav(wav_bytes, start_sec=1.0, duration_sec=4.0)
+    res_id = client.post(
+        "/identify",
+        files={"file": ("clip.wav", clip_bytes, "audio/wav")},
+    )
+    assert res_id.status_code == 200
+    assert res_id.json()["matched"] is True
+

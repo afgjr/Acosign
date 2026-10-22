@@ -10,6 +10,33 @@ This document describes the REST API endpoints provided by Acosign for audio fin
 
 ---
 
+## Authentication
+
+Acosign uses API key authentication to safeguard administrative operations.
+
+- **Protected Endpoints**:
+  - `POST /register` (catalog ingestion)
+  - `DELETE /tracks/{content_id}` (catalog deletion)
+- **Public Endpoints**:
+  - `GET /health`
+  - `POST /identify`
+  - `GET /tracks`
+  - `GET /tracks/{content_id}`
+
+### How to Authenticate
+Pass your secret admin key in the **`X-API-Key`** request header:
+
+```http
+X-API-Key: your_admin_api_key_here
+```
+
+### Security & Operational Behavior
+- **Timing-Attack Protection**: Keys are validated in constant time using `secrets.compare_digest`.
+- **Fail Closed**: If `ADMIN_API_KEY` is empty or unconfigured on the server, protected endpoints return **`503 Service Unavailable`** (`{"detail": "Admin key not configured"}`) instead of opening up.
+- **Redaction**: Keys are never logged to console or logs, nor echoed in response bodies or errors.
+
+---
+
 ## Error Handling & Status Codes
 
 All errors return a structured JSON response with a descriptive `detail` field:
@@ -25,11 +52,13 @@ The API uses standard HTTP response codes:
 - **`201 Created`**: Track successfully registered.
 - **`204 No Content`**: Track successfully deleted; no response body returned.
 - **`400 Bad Request`**: Audio could not be decoded, audio file is empty, or snippet duration is too short (< 3.0s for `/identify`).
+- **`401 Unauthorized`**: Missing or invalid admin API key on protected endpoints.
 - **`404 Not Found`**: The requested `content_id` does not exist.
 - **`409 Conflict`**: Track is a duplicate (the audio strongly matches an already registered track).
 - **`413 Payload Too Large`**: Uploaded audio exceeds `MAX_UPLOAD_MB` (default: 25 MB).
 - **`422 Unprocessable Entity`**: Request validation error (e.g. missing form fields or invalid parameters).
 - **`500 Internal Server Error`**: Unexpected server error. Returns `{"detail": "Internal error"}` with full diagnostics logged server-side (no stack traces leaked).
+- **`503 Service Unavailable`**: Administrative endpoint called while `ADMIN_API_KEY` is unconfigured on the server.
 
 ---
 
@@ -41,7 +70,7 @@ The API uses standard HTTP response codes:
 GET /health
 ```
 
-Checks API readiness and database connectivity. Always returns HTTP 200 without raising exceptions, indicating whether the database is currently reachable.
+Checks API readiness and database connectivity. Always returns HTTP 200 without raising exceptions, indicating whether the database is currently reachable. Public endpoint (no key required).
 
 #### Request
 - **Headers**: None
@@ -73,6 +102,13 @@ POST /register
 
 Processes an audio file through the STFT spectrogram and landmark peak pairing pipeline, generates 34-bit combinatorial hashes, verifies that the audio is not already registered under another track, and persists the track metadata and fingerprint hashes in the database.
 
+> **Protected Endpoint**: Requires valid `X-API-Key` header.
+
+#### Request Headers
+| Header | Type | Required | Description |
+|---|---|---|---|
+| `X-API-Key` | string | Yes | Administrator API key. |
+
 #### Request Fields (`multipart/form-data`)
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -98,6 +134,12 @@ Processes an audio file through the STFT spectrogram and landmark peak pairing p
     "detail": "Failed to decode audio file: format not recognized"
   }
   ```
+- **`401 Unauthorized`**: Missing or incorrect `X-API-Key` header.
+  ```json
+  {
+    "detail": "Invalid or missing admin key"
+  }
+  ```
 - **`409 Conflict`**: Duplicate track detected.
   ```json
   {
@@ -111,10 +153,17 @@ Processes an audio file through the STFT spectrogram and landmark peak pairing p
   }
   ```
 - **`422 Unprocessable Entity`**: Missing form fields.
+- **`503 Service Unavailable`**: `ADMIN_API_KEY` is not configured on the server.
+  ```json
+  {
+    "detail": "Admin key not configured"
+  }
+  ```
 
 #### Curl Example
 ```bash
 curl -X POST http://localhost:8000/register \
+  -H "X-API-Key: YOUR_ADMIN_KEY" \
   -F "file=@/path/to/song.wav" \
   -F "title=Midnight Groove" \
   -F "owner=Studio Records"
@@ -128,7 +177,7 @@ curl -X POST http://localhost:8000/register \
 POST /identify
 ```
 
-Takes a short query audio clip (minimum 3.0 seconds), computes fingerprint hashes, queries the inverted database index for matching hashes, and runs temporal offset alignment voting to identify the matching track.
+Takes a short query audio clip (minimum 3.0 seconds), computes fingerprint hashes, queries the inverted database index for matching hashes, and runs temporal offset alignment voting to identify the matching track. Public endpoint (no key required).
 
 #### Request Fields (`multipart/form-data`)
 | Field | Type | Required | Description |
@@ -186,7 +235,7 @@ curl -X POST http://localhost:8000/identify \
 GET /tracks?limit=20&offset=0
 ```
 
-Returns a paginated list of registered tracks in the database, ordered by creation time descending.
+Returns a paginated list of registered tracks in the database, ordered by creation time descending. Public endpoint (no key required).
 
 #### Query Parameters
 | Parameter | Type | Default | Constraints | Description |
@@ -223,7 +272,7 @@ curl -X GET "http://localhost:8000/tracks?limit=10&offset=0"
 GET /tracks/{content_id}
 ```
 
-Fetches track metadata for a single track identified by its unique Content ID.
+Fetches track metadata for a single track identified by its unique Content ID. Public endpoint (no key required).
 
 #### Path Parameters
 | Parameter | Type | Required | Description |
@@ -264,6 +313,13 @@ DELETE /tracks/{content_id}
 
 Deletes the track metadata and all associated fingerprint hashes via cascading database delete. Subsequent calls to `/identify` using clips from this track will return `matched: false`.
 
+> **Protected Endpoint**: Requires valid `X-API-Key` header.
+
+#### Request Headers
+| Header | Type | Required | Description |
+|---|---|---|---|
+| `X-API-Key` | string | Yes | Administrator API key. |
+
 #### Path Parameters
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -271,14 +327,27 @@ Deletes the track metadata and all associated fingerprint hashes via cascading d
 
 #### Responses
 - **`204 No Content`**: Track and its fingerprints successfully removed. Response has an empty body.
+- **`401 Unauthorized`**: Missing or incorrect `X-API-Key` header.
+  ```json
+  {
+    "detail": "Invalid or missing admin key"
+  }
+  ```
 - **`404 Not Found`**:
   ```json
   {
     "detail": "Track with Content ID 'b3f090d81d2f447781f3d81b83dfaa90' not found"
   }
   ```
+- **`503 Service Unavailable`**: `ADMIN_API_KEY` is not configured on the server.
+  ```json
+  {
+    "detail": "Admin key not configured"
+  }
+  ```
 
 #### Curl Example
 ```bash
-curl -i -X DELETE http://localhost:8000/tracks/b3f090d81d2f447781f3d81b83dfaa90
+curl -i -X DELETE http://localhost:8000/tracks/b3f090d81d2f447781f3d81b83dfaa90 \
+  -H "X-API-Key: YOUR_ADMIN_KEY"
 ```

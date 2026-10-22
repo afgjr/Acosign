@@ -114,6 +114,10 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "*"
     """Allowed CORS origins (comma-separated or '*' for all)."""
 
+    ADMIN_API_KEY: str = ""
+    """Admin API key required for privileged endpoints (POST /register, DELETE /tracks/{id}).
+    Must be set in production; empty value causes admin endpoints to return 503 (fail closed)."""
+
 
 # Module-level singleton — import this everywhere instead of instantiating
 # Settings() repeatedly.
