@@ -64,9 +64,53 @@ Acosign provides a REST API built with FastAPI for track registration, query ide
 - **`GET /tracks/{content_id}`**: Retrieve metadata for a specific registered track.
 - **`DELETE /tracks/{content_id}`**: Delete a track and cascade-remove all associated fingerprint hashes.
 
-For detailed request/response schemas, error status codes, and `curl` examples, refer to [docs/api.md](docs/api.md).
+---
+
+## 🖥️ Demo UI
+
+Acosign provides a Streamlit web interface for interactive fingerprint registration, audio query identification, and catalog exploration.
+
+### Running the UI
+
+Ensure your API backend is running (by default at `http://localhost:8000`), then start Streamlit:
+
+```bash
+# Optional: set custom backend URL (defaults to http://localhost:8000)
+# export API_URL=http://localhost:8000
+
+streamlit run ui/app.py
+```
+
+### UI Features & Tabs
+
+- **Register Tab:**
+  Upload full audio tracks (`.mp3`, `.wav`, `.m4a`) and supply required metadata (Track Title and Owner). Extracts landmark peak pairs, stores hashes in PostgreSQL, and generates a unique Content ID. Requires the Admin key.
+- **Identify Tab:**
+  Upload an unknown audio clip or record query snippets directly via microphone (`st.audio_input`). Submits audio to `POST /identify` and displays an inspection card with track title, owner, Content ID, match score metric, match strength indicator (`STRONG MATCH` in green vs. `WEAK MATCH` in orange), and temporal alignment offset in seconds.
+- **Tracks Tab:**
+  Catalog browser displaying all registered tracks (`Title`, `Owner`, `Duration`, `Content ID`, `Created At`) via `GET /tracks`. Features a refresh button and per-track deletion with an interactive confirmation prompt calling `DELETE /tracks/{content_id}`. Requires the Admin key.
+- **Sidebar & Health Indicator:**
+  Displays the active API base URL, real-time service and database health status (`GET /health`), and a password input for the Admin key.
 
 ---
+
+## 🔐 Administrative Protection (`ADMIN_API_KEY`)
+
+Acosign secures mutating administrative endpoints (`POST /register` and `DELETE /tracks/{content_id}`) with an API key dependency (`X-API-Key`).
+
+### Setting the Admin Key
+
+Set `ADMIN_API_KEY` in your `.env` file or environment:
+
+```env
+ADMIN_API_KEY=change_me_admin_key
+```
+
+- When accessing the Streamlit UI, enter your admin key in the **Admin key** field in the sidebar. When left empty, register and delete actions remain locked.
+- **Demo Pre-registration:** Demo audio tracks are pre-registered by the administrator. Normal users can immediately identify audio snippets in the **Identify** tab without needing administrative privileges.
+
+---
+
 
 ## 🎵 Supported Audio Formats
 
