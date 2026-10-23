@@ -17,6 +17,7 @@ Acosign uses API key authentication to safeguard administrative operations.
 - **Protected Endpoints**:
   - `POST /register` (catalog ingestion)
   - `DELETE /tracks/{content_id}` (catalog deletion)
+  - `GET /admin/verify` (admin key validation)
 - **Public Endpoints**:
   - `GET /health`
   - `POST /identify`
@@ -115,6 +116,12 @@ Processes an audio file through the STFT spectrogram and landmark peak pairing p
 | `file` | Binary File | Yes | Audio file (WAV, MP3, FLAC, OGG). Max size: 25 MB (`MAX_UPLOAD_MB`). |
 | `title` | string | Yes | Track title (e.g. `"Midnight Groove"`). |
 | `owner` | string | Yes | Rights holder or artist name (e.g. `"Studio Records"`). |
+| `album` | string | No | Album or collection name (max 200 chars). |
+| `genre` | string | No | Musical genre (max 200 chars). |
+| `release_year` | integer | No | Release year (1900 to current year + 1). |
+| `isrc` | string | No | International Standard Recording Code (max 200 chars). |
+| `license_type` | string | No | Licensing or usage terms (max 200 chars). |
+| `description` | string | No | Description or contextual notes (max 2000 chars). |
 
 #### Responses
 - **`201 Created`**: Track registered successfully.
@@ -125,7 +132,13 @@ Processes an audio file through the STFT spectrogram and landmark peak pairing p
     "title": "Midnight Groove",
     "owner": "Studio Records",
     "duration_seconds": 182.4,
-    "hashes_stored": 8420
+    "hashes_stored": 8420,
+    "album": "Night Sessions",
+    "genre": "Lo-Fi Jazz",
+    "release_year": 2024,
+    "isrc": "USRC17607839",
+    "license_type": "All Rights Reserved",
+    "description": "Original studio master recording."
   }
   ```
 - **`400 Bad Request`**: Empty file or unreadable audio format.
@@ -194,7 +207,13 @@ Takes a short query audio clip (minimum 3.0 seconds), computes fingerprint hashe
     "owner": "Studio Records",
     "score": 84,
     "match_strength": "strong",
-    "offset_seconds": 14.52
+    "offset_seconds": 14.52,
+    "album": "Night Sessions",
+    "genre": "Lo-Fi Jazz",
+    "release_year": 2024,
+    "isrc": "USRC17607839",
+    "license_type": "All Rights Reserved",
+    "description": "Original studio master recording."
   }
   ```
 - **`200 OK` (No Match Found)**:
@@ -206,7 +225,13 @@ Takes a short query audio clip (minimum 3.0 seconds), computes fingerprint hashe
     "owner": null,
     "score": null,
     "match_strength": null,
-    "offset_seconds": null
+    "offset_seconds": null,
+    "album": null,
+    "genre": null,
+    "release_year": null,
+    "isrc": null,
+    "license_type": null,
+    "description": null
   }
   ```
 - **`400 Bad Request`**: Audio shorter than 3.0 seconds, empty, or unreadable format.
@@ -349,5 +374,43 @@ Deletes the track metadata and all associated fingerprint hashes via cascading d
 #### Curl Example
 ```bash
 curl -i -X DELETE http://localhost:8000/tracks/b3f090d81d2f447781f3d81b83dfaa90 \
+  -H "X-API-Key: YOUR_ADMIN_KEY"
+```
+
+---
+
+### 7. Verify Admin Key
+
+```http
+GET /admin/verify
+```
+
+Verifies that the supplied administrative key is valid without performing any mutations. Returns HTTP 204 No Content when the key is authorized.
+
+> **Protected Endpoint**: Requires valid `X-API-Key` header.
+
+#### Request Headers
+| Header | Type | Required | Description |
+|---|---|---|---|
+| `X-API-Key` | string | Yes | Administrator API key. |
+
+#### Responses
+- **`204 No Content`**: Admin key is valid. Response body is empty.
+- **`401 Unauthorized`**: Missing or incorrect `X-API-Key` header.
+  ```json
+  {
+    "detail": "Invalid or missing admin key"
+  }
+  ```
+- **`503 Service Unavailable`**: `ADMIN_API_KEY` is not configured on the server.
+  ```json
+  {
+    "detail": "Admin key not configured"
+  }
+  ```
+
+#### Curl Example
+```bash
+curl -i -X GET http://localhost:8000/admin/verify \
   -H "X-API-Key: YOUR_ADMIN_KEY"
 ```

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import uuid
 
-from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -34,6 +34,14 @@ class Track(Base):
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
     )
+
+    # Extended metadata (optional/nullable)
+    album: Mapped[str | None] = mapped_column(String(200), nullable=True, default=None)
+    genre: Mapped[str | None] = mapped_column(String(200), nullable=True, default=None)
+    release_year: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    isrc: Mapped[str | None] = mapped_column(String(200), nullable=True, default=None)
+    license_type: Mapped[str | None] = mapped_column(String(200), nullable=True, default=None)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
 
     fingerprints: Mapped[list[Fingerprint]] = relationship(
         "Fingerprint",

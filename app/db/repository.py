@@ -22,6 +22,12 @@ def create_track(
     title: str,
     owner: str,
     duration_seconds: float,
+    album: str | None = None,
+    genre: str | None = None,
+    release_year: int | None = None,
+    isrc: str | None = None,
+    license_type: str | None = None,
+    description: str | None = None,
 ) -> Track:
     """Create a new track with a unique content_id (UUID4 hex)."""
     track = Track(
@@ -29,6 +35,12 @@ def create_track(
         title=title,
         owner=owner,
         duration_seconds=duration_seconds,
+        album=album,
+        genre=genre,
+        release_year=release_year,
+        isrc=isrc,
+        license_type=license_type,
+        description=description,
     )
     db.add(track)
     db.commit()
