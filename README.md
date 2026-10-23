@@ -83,12 +83,14 @@ streamlit run ui/app.py
 
 ### UI Features & Tabs
 
+- **Identify Tab (Default):**
+  Hero section with one-tap recording via microphone (`st.audio_input`) or file snippet upload. Submits query audio to `POST /identify` and displays an inspection card with track title, owner, strength badge (`STRONG MATCH` / `WEAK MATCH`), score, temporal alignment offset, and an inline amplitude envelope waveform visualizer (for WAV clips). Displays a muted "No match found" card if unrecognized.
 - **Register Tab:**
-  Upload full audio tracks (`.mp3`, `.wav`, `.m4a`) and supply required metadata (Track Title and Owner). Extracts landmark peak pairs, stores hashes in PostgreSQL, and generates a unique Content ID. Requires the Admin key.
-- **Identify Tab:**
-  Upload an unknown audio clip or record query snippets directly via microphone (`st.audio_input`). Submits audio to `POST /identify` and displays an inspection card with track title, owner, Content ID, match score metric, match strength indicator (`STRONG MATCH` in green vs. `WEAK MATCH` in orange), and temporal alignment offset in seconds.
+  Upload full audio tracks (`.mp3`, `.wav`, `.m4a`) and supply required metadata (Track Title and Owner). Extracts landmark peak pairs, stores hashes in PostgreSQL, and generates a unique Content ID. Protected by the Admin key.
 - **Tracks Tab:**
-  Catalog browser displaying all registered tracks (`Title`, `Owner`, `Duration`, `Content ID`, `Created At`) via `GET /tracks`. Features a refresh button and per-track deletion with an interactive confirmation prompt calling `DELETE /tracks/{content_id}`. Requires the Admin key.
+  Catalog browser displaying all registered tracks formatted as row cards (`Title`, `Owner`, `Duration` in `mm:ss`, and short Content ID). Features catalog refresh and per-track deletion with confirmation, protected by the Admin key.
+- **Developers Tab:**
+  Developer portal and API quickstart. Displays the base URL, direct link to interactive FastAPI `/docs`, copyable `curl` and Python `requests` code snippets for `POST /identify`, an interactive "Try it" test box with raw JSON output, response field reference table, HTTP status code guide, and production notes.
 - **Sidebar & Health Indicator:**
   Displays the active API base URL, real-time service and database health status (`GET /health`), and a password input for the Admin key.
 
