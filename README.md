@@ -81,18 +81,32 @@ Ensure your API backend is running (by default at `http://localhost:8000`), then
 streamlit run ui/app.py
 ```
 
-### UI Features & Tabs
+### UI Pages & Access Control
 
-- **Identify Tab (Default):**
-  Hero section with one-tap recording via microphone (`st.audio_input`) or file snippet upload. Submits query audio to `POST /identify` and displays an inspection card with track title, owner, strength badge (`STRONG MATCH` / `WEAK MATCH`), score, temporal alignment offset, and an inline amplitude envelope waveform visualizer (for WAV clips). Displays a muted "No match found" card if unrecognized.
-- **Register Tab:**
-  Upload full audio tracks (`.mp3`, `.wav`, `.m4a`) and supply required metadata (Track Title and Owner). Extracts landmark peak pairs, stores hashes in PostgreSQL, and generates a unique Content ID. Protected by the Admin key.
-- **Tracks Tab:**
-  Catalog browser displaying all registered tracks formatted as row cards (`Title`, `Owner`, `Duration` in `mm:ss`, and short Content ID). Features catalog refresh and per-track deletion with confirmation, protected by the Admin key.
-- **Developers Tab:**
-  Developer portal and API quickstart. Displays the base URL, direct link to interactive FastAPI `/docs`, copyable `curl` and Python `requests` code snippets for `POST /identify`, an interactive "Try it" test box with raw JSON output, response field reference table, HTTP status code guide, and production notes.
-- **Sidebar & Health Indicator:**
-  Displays the active API base URL, real-time service and database health status (`GET /health`), and a password input for the Admin key.
+Acosign UI is built as a multi-page app with sidebar navigation and session-based admin authorization.
+
+#### Public Pages (Visible to All Visitors)
+- **Identify (Default):**
+  Hero section with one-tap recording via microphone (`st.audio_input`) or file snippet upload (`.mp3`, `.wav`, `.m4a`). Submits query audio to `POST /identify` and displays an inspection card with track title, owner, metadata (album, genre, release year), strength badge (`STRONG MATCH` in green vs. `WEAK MATCH` in orange), score, temporal alignment offset, and an inline amplitude envelope waveform visualizer (for WAV clips). Displays a muted "No match found" card if unrecognized.
+- **Tracks (Read-Only):**
+  Public catalog browser with a search box filtering tracks by title or owner. Renders clean row cards showing track title, owner, genre, year, and duration (`mm:ss`). Does not permit catalog modifications.
+- **Developers:**
+  API documentation and interactive testing portal. Features copyable `curl` and Python `requests` quickstart code snippets, direct link to FastAPI `/docs`, an interactive "Try it" test box with raw JSON output, status code definitions, and response field specifications.
+
+#### Admin-Only Pages (Unlocked via Admin Login)
+- **Register (2-Step Ingestion Wizard):**
+  - **Step 1:** Upload master audio file (`.mp3`, `.wav`, `.m4a`) and verify via inline audio player preview (`st.audio`).
+  - **Step 2:** Form input for required metadata (Title, Owner) and optional metadata (Album, Genre, Release Year, ISRC, License Type, Description). Submits to `POST /register` with administrative credentials.
+- **Manage Tracks:**
+  Catalog administration interface showing registered tracks with a per-track **Delete** button guarded by a two-step confirmation prompt calling `DELETE /tracks/{content_id}`.
+
+#### Admin Login Flow
+1. At the bottom of the sidebar, enter the secret admin key into the password field and click **Log in**.
+2. The UI validates the key against `GET /admin/verify`:
+   - `204 No Content`: The key is saved securely in `st.session_state` (never logged or printed), unlocking the **Register** and **Manage tracks** pages.
+   - `401 Unauthorized`: Displays "Wrong admin key".
+   - `503 Service Unavailable`: Displays "Admin not configured".
+3. An active admin session can click **Log out** in the sidebar at any time to clear credentials and return to public mode.
 
 ---
 
