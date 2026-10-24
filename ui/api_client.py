@@ -131,6 +131,9 @@ def identify_audio(
         return 0, "Unable to connect to the API server."
 
 
+REGISTER_TIMEOUT = 300  # seconds (extended for fingerprinting pipeline)
+
+
 def register_track(
     file_name: str,
     file_bytes: bytes,
@@ -150,7 +153,7 @@ def register_track(
             files=files,
             data=data,
             headers=headers,
-            timeout=REQUEST_TIMEOUT,
+            timeout=REGISTER_TIMEOUT,
         )
         if resp.status_code == 201:
             return 201, resp.json()
@@ -165,6 +168,8 @@ def register_track(
             except Exception:
                 return 409, "Track already registered"
         return resp.status_code, extract_error_detail(resp)
+    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+        raise
     except requests.exceptions.RequestException:
         return 0, "Unable to connect to the API server."
 
