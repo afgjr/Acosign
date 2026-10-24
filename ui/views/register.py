@@ -6,6 +6,7 @@ from datetime import datetime
 import streamlit as st
 
 from ui.api_client import register_track
+from ui.styles import html
 
 
 def render_register_page() -> None:
@@ -18,12 +19,14 @@ def render_register_page() -> None:
     admin_key = st.session_state.get("admin_key", "")
 
     st.markdown(
-        """
-        <div style="margin-bottom: 20px;">
-            <h1 style="font-size: 2.2rem; font-weight: 800; margin-bottom: 4px;">Register Audio Track</h1>
-            <div style="color: #8a8a8f; font-size: 0.95rem;">Extract acoustic landmarks, index hashes, and assign a Content ID.</div>
-        </div>
-        """,
+        html(
+            """
+            <div style="margin-bottom: 20px;">
+                <h1 style="font-size: 2.2rem; font-weight: 800; margin-bottom: 4px;">Register Audio Track</h1>
+                <div style="color: #8a8a8f; font-size: 0.95rem;">Extract acoustic landmarks, index hashes, and assign a Content ID.</div>
+            </div>
+            """
+        ),
         unsafe_allow_html=True,
     )
 
@@ -43,13 +46,13 @@ def render_register_page() -> None:
     with col_s1:
         s1_color = "#f5f26b" if current_step == 1 else "#8a8a8f"
         st.markdown(
-            f'<div style="text-align: center; border-bottom: 3px solid {s1_color}; padding-bottom: 6px; font-weight: 700; color: {s1_color};">Step 1: Upload & Preview</div>',
+            html(f'<div style="text-align: center; border-bottom: 3px solid {s1_color}; padding-bottom: 6px; font-weight: 700; color: {s1_color};">Step 1: Upload & Preview</div>'),
             unsafe_allow_html=True,
         )
     with col_s2:
         s2_color = "#f5f26b" if current_step == 2 else "#8a8a8f"
         st.markdown(
-            f'<div style="text-align: center; border-bottom: 3px solid {s2_color}; padding-bottom: 6px; font-weight: 700; color: {s2_color};">Step 2: Track Metadata</div>',
+            html(f'<div style="text-align: center; border-bottom: 3px solid {s2_color}; padding-bottom: 6px; font-weight: 700; color: {s2_color};">Step 2: Track Metadata</div>'),
             unsafe_allow_html=True,
         )
 
@@ -158,13 +161,15 @@ def render_register_page() -> None:
                         cid = result.get("content_id", "N/A")
                         stored = result.get("hashes_stored", 0)
                         st.markdown(
-                            f"""
-                            <div class="aco-card" style="border-left: 4px solid #f5f26b; margin-top: 16px;">
-                                <div style="font-weight: 700; color: #f5f26b; font-size: 1.1rem; margin-bottom: 8px;">✓ Track Successfully Registered</div>
-                                <div style="font-size: 0.95rem; color: #f5f5f4;">Content ID: <code>{cid}</code></div>
-                                <div style="font-size: 0.9rem; color: #8a8a8f; margin-top: 4px;">Fingerprint hashes stored: {stored:,}</div>
-                            </div>
-                            """,
+                            html(
+                                f"""
+                                <div class="aco-card" style="border-left: 4px solid #f5f26b; margin-top: 16px;">
+                                    <div style="font-weight: 700; color: #f5f26b; font-size: 1.1rem; margin-bottom: 8px;">✓ Track Successfully Registered</div>
+                                    <div style="font-size: 0.95rem; color: #f5f5f4;">Content ID: <code>{cid}</code></div>
+                                    <div style="font-size: 0.9rem; color: #8a8a8f; margin-top: 4px;">Fingerprint hashes stored: {stored:,}</div>
+                                </div>
+                                """
+                            ),
                             unsafe_allow_html=True,
                         )
                         # Reset wizard state for the next registration

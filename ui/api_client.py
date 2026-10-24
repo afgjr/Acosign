@@ -36,8 +36,19 @@ def extract_error_detail(response: requests.Response) -> str:
         return response.text or f"HTTP status {response.status_code}"
 
 
-def check_api_health(base_url: str = API_URL) -> tuple[bool, str]:
-    """Call GET /health and return (is_healthy, status_message)."""
+import streamlit as st
+
+
+@st.cache_data(ttl=15)
+def check_api_health(base_url: str = API_URL) -> tuple[str, str]:
+    """Call GET /health and return (status_type, detail_message).
+
+    status_type is one of:
+      - 'online'   (API status ok, database ok)
+      - 'degraded' (API answers, but database is unreachable)
+      - 'offline'  (API unreachable)
+    Cached for 15 seconds via st.cache_data.
+    """
     try:
         resp = requests.get(f"{base_url}/health", timeout=5)
         if resp.status_code == 200:
@@ -45,11 +56,37 @@ def check_api_health(base_url: str = API_URL) -> tuple[bool, str]:
             api_status = data.get("status")
             db_status = data.get("database")
             if api_status == "ok" and db_status == "ok":
-                return True, "API and database ok"
-            return False, f"API ok, but database is {db_status}"
-        return False, f"Health check failed (HTTP {resp.status_code})"
-    except requests.exceptions.RequestException:
-        return False, "API unreachable"
+                return "online", ""
+            if db_status == "unreachable":
+                return "degraded", f"Database is {db_status}"
+            return "degraded", f"API is {api_status}, database is {db_status}"
+        return "offline", f"Health check failed (HTTP {resp.status_code})"
+    except requests.exceptions.RequestException as exc:
+        return "offline", f"API unreachable: {exc}"
+
+
+from ui.styles import html
+
+
+def render_health_status_html(health_status: str) -> str:
+    """Render 8px colored dot and status label (Online, Degraded, Offline)."""
+    if health_status == "online":
+        color = "#10b981"
+        label = "Online"
+    elif health_status == "degraded":
+        color = "#f59e0b"
+        label = "Degraded"
+    else:
+        color = "#ef4444"
+        label = "Offline"
+
+    res = (
+        f'<span style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.88rem; font-weight: 500; color: #f5f5f4;">'
+        f'<span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: {color};"></span>'
+        f'{label}'
+        f'</span>'
+    )
+    return html(res)
 
 
 def verify_admin_key(admin_key: str, base_url: str = API_URL) -> tuple[int, str]:

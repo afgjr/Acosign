@@ -5,6 +5,7 @@ from __future__ import annotations
 import streamlit as st
 
 from ui.api_client import delete_track, get_tracks
+from ui.styles import html
 
 
 def render_manage_tracks_page() -> None:
@@ -17,12 +18,14 @@ def render_manage_tracks_page() -> None:
     admin_key = st.session_state.get("admin_key", "")
 
     st.markdown(
-        """
-        <div style="margin-bottom: 20px;">
-            <h1 style="font-size: 2.2rem; font-weight: 800; margin-bottom: 4px;">Manage Tracks</h1>
-            <div style="color: #8a8a8f; font-size: 0.95rem;">Administrative catalog controls and track removal.</div>
-        </div>
-        """,
+        html(
+            """
+            <div style="margin-bottom: 20px;">
+                <h1 style="font-size: 2.2rem; font-weight: 800; margin-bottom: 4px;">Manage Tracks</h1>
+                <div style="color: #8a8a8f; font-size: 0.95rem;">Administrative catalog controls and track removal.</div>
+            </div>
+            """
+        ),
         unsafe_allow_html=True,
     )
 
@@ -35,11 +38,13 @@ def render_manage_tracks_page() -> None:
         tracks = result
         if not tracks:
             st.markdown(
-                """
-                <div class="aco-card" style="text-align: center; padding: 36px 20px;">
-                    <div style="color: #8a8a8f; font-size: 0.95rem;">No tracks registered in the database.</div>
-                </div>
-                """,
+                html(
+                    """
+                    <div class="aco-card" style="text-align: center; padding: 36px 20px;">
+                        <div style="color: #8a8a8f; font-size: 0.95rem;">No tracks registered in the database.</div>
+                    </div>
+                    """
+                ),
                 unsafe_allow_html=True,
             )
             return
@@ -62,21 +67,23 @@ def render_manage_tracks_page() -> None:
             short_cid = f"{cid[:8]}..." if len(cid) > 8 else cid
 
             st.markdown(
-                f"""
-                <div class="aco-track-row" style="margin-bottom: 8px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div>
-                            <div style="font-weight: 700; font-size: 1.05rem; color: #f5f5f4;">{t_title}</div>
-                            <div style="font-size: 0.85rem; color: #8a8a8f; margin-top: 2px;">
-                                {t_owner} &bull; {dur_str} &bull; {t_genre}
+                html(
+                    f"""
+                    <div class="aco-track-row" style="margin-bottom: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <div style="font-weight: 700; font-size: 1.05rem; color: #f5f5f4;">{t_title}</div>
+                                <div style="font-size: 0.85rem; color: #8a8a8f; margin-top: 2px;">
+                                    {t_owner} &bull; {dur_str} &bull; {t_genre}
+                                </div>
+                            </div>
+                            <div>
+                                <code style="background: rgba(245, 242, 107, 0.12); color: #f5f26b; padding: 4px 10px; border-radius: 999px; font-size: 0.8rem;">{short_cid}</code>
                             </div>
                         </div>
-                        <div>
-                            <code style="background: rgba(245, 242, 107, 0.12); color: #f5f26b; padding: 4px 10px; border-radius: 999px; font-size: 0.8rem;">{short_cid}</code>
-                        </div>
                     </div>
-                </div>
-                """,
+                    """
+                ),
                 unsafe_allow_html=True,
             )
 

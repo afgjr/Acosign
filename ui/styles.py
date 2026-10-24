@@ -8,6 +8,7 @@ import numpy as np
 
 CUSTOM_CSS = """
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@700&display=swap');
 /* Base Theme Colors & Font */
 :root {
     --bg-color: #0b0b0c;
@@ -32,10 +33,17 @@ body, .stApp {
 }
 
 /* Headings */
-h1, h2, h3, h4, .stHeading {
+h3, h4 {
     color: #f5f5f4 !important;
     font-weight: 700 !important;
-    letter-spacing: -0.025em !important;
+}
+
+/* Sora wordmark font — only for the Acosign wordmark and h1/h2 headings */
+h1, h2, .aco-wordmark, .aco-wordmark h1, .aco-wordmark h2 {
+    font-family: 'Sora', sans-serif !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.02em !important;
+    color: #f5f5f4 !important;
 }
 
 /* Sidebar styling */
@@ -172,12 +180,42 @@ input.stTextInput {
     border-radius: 999px !important;
 }
 
-/* Audio input mic widget */
+/* Audio input mic widget: largest element on Identify page */
 [data-testid="stAudioInput"] {
     background-color: #1a1a1c !important;
-    border-radius: 24px !important;
-    padding: 12px !important;
+    border-radius: 28px !important;
+    padding: 32px 24px !important;
+    border: 1px solid rgba(245, 242, 107, 0.2) !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35) !important;
+    margin: 16px 0 20px 0 !important;
+    min-height: 110px !important;
+}
+[data-testid="stAudioInput"] button {
+    transform: scale(1.35) !important;
+    transition: transform 0.15s ease-in-out !important;
+}
+[data-testid="stAudioInput"] button:hover {
+    transform: scale(1.45) !important;
+}
+
+/* Collapsed file uploader expander */
+[data-testid="stExpander"] {
     border: none !important;
+    background-color: transparent !important;
+    margin-bottom: 20px !important;
+}
+[data-testid="stExpander"] details {
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 20px !important;
+    background-color: #141416 !important;
+}
+[data-testid="stExpander"] summary {
+    border-radius: 20px !important;
+    color: #8a8a8f !important;
+    font-size: 0.92rem !important;
+}
+[data-testid="stExpander"] summary:hover {
+    color: #f5f26b !important;
 }
 </style>
 """
@@ -231,6 +269,14 @@ def compute_waveform_envelope(audio_bytes: bytes, num_bars: int = 60) -> list[fl
         return None
 
 
+def html(s: str) -> str:
+    """Remove all leading whitespace from every line and drop empty lines,
+    producing an unindented single string so Streamlit never mistakes HTML
+    blocks for indented Markdown code blocks.
+    """
+    return "".join(line.strip() for line in s.splitlines() if line.strip())
+
+
 def render_waveform_html(envelope: list[float], progress_pct: float = 0.58) -> str:
     """Render amplitude envelope as ~60 vertical bars with yellow played bars and gray rest."""
     num_bars = len(envelope)
@@ -240,13 +286,13 @@ def render_waveform_html(envelope: list[float], progress_pct: float = 0.58) -> s
         height_px = max(5, int(val * 40))
         color = "#f5f26b" if i <= progress_point else "#3a3a3e"
         bars_html.append(
-            f'<div style="width: 4px; height: {height_px}px; background-color: {color}; '
-            f'border-radius: 2px; flex-shrink: 0;"></div>'
+            f'<div style="width: 4px; height: {height_px}px; background-color: {color}; border-radius: 2px; flex-shrink: 0;"></div>'
         )
-    return (
-        '<div style="display: flex; align-items: center; justify-content: space-between; '
-        'height: 48px; background: #121214; border-radius: 14px; padding: 0 14px; '
-        'margin: 16px 0; gap: 3px; overflow: hidden;">'
-        + "".join(bars_html)
-        + "</div>"
+    bars_str = "".join(bars_html)
+    container = (
+        f'<div style="display: flex; align-items: center; justify-content: space-between; '
+        f'height: 48px; background: #121214; border-radius: 14px; padding: 0 14px; '
+        f'margin: 16px 0; gap: 3px; overflow: hidden;">{bars_str}</div>'
     )
+    return html(container)
+

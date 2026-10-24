@@ -14,8 +14,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import streamlit as st
 
-from ui.api_client import API_URL, check_api_health, verify_admin_key
-from ui.styles import CUSTOM_CSS
+from ui.api_client import (
+    API_URL,
+    check_api_health,
+    render_health_status_html,
+    verify_admin_key,
+)
+from ui.styles import CUSTOM_CSS, html
 from ui.views.developers import render_developers_page
 from ui.views.identify import render_identify_page
 from ui.views.manage_tracks import render_manage_tracks_page
@@ -24,7 +29,7 @@ from ui.views.tracks import render_tracks_page
 
 st.set_page_config(
     page_title="Acosign",
-    page_icon="🎵",
+    page_icon="ui/assets/favicon.png",
     layout="centered",
 )
 
@@ -40,28 +45,46 @@ if "selected_page" not in st.session_state:
     st.session_state["selected_page"] = "Identify"
 
 
+_FAVICON_SVG_PATH = Path(__file__).resolve().parent / "assets" / "favicon.svg"
+if _FAVICON_SVG_PATH.exists():
+    _svg_text = _FAVICON_SVG_PATH.read_text(encoding="utf-8").strip()
+    LOGO_SVG_36 = _svg_text.replace(
+        "<svg ",
+        '<svg width="36" height="36" style="width:36px;height:36px;flex-shrink:0;" ',
+        1,
+    )
+else:
+    LOGO_SVG_36 = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="36" height="36" style="width:36px;height:36px;flex-shrink:0;">'
+        '<rect width="64" height="64" rx="16" fill="#0b0b0c"/>'
+        '<g transform="translate(0.0,0)">'
+        '<rect x="0" y="22.0" width="8" height="20" rx="4.0" fill="#f5f26b"/>'
+        '<rect x="14" y="14.0" width="8" height="36" rx="4.0" fill="#f5f26b"/>'
+        '<rect x="28" y="4.0" width="8" height="56" rx="4.0" fill="#f5f26b"/>'
+        '<rect x="42" y="14.0" width="8" height="36" rx="4.0" fill="#f5f26b"/>'
+        '<rect x="56" y="22.0" width="8" height="20" rx="4.0" fill="#f5f26b"/>'
+        "</g></svg>"
+    )
+
 # ─── Sidebar Navigation & Health ───────────────────────────────────────────────
 st.sidebar.markdown(
-    """
-    <div style="margin-bottom: 12px;">
-        <h2 style="font-size: 1.5rem; font-weight: 800; margin: 0; color: #f5f5f4;">🎵 Acosign</h2>
-        <div style="font-size: 0.82rem; color: #8a8a8f; margin-top: 2px;">Audio Fingerprinting & Content ID</div>
-    </div>
-    """,
+    html(
+        f"""
+        <div class="aco-wordmark" style="margin-bottom: 16px; display: flex; align-items: center; gap: 10px;">
+            {LOGO_SVG_36}
+            <div>
+                <h2 style="font-size: 1.4rem; font-weight: 700; margin: 0; color: #f5f5f4; letter-spacing: -0.02em;">Acosign</h2>
+                <div style="font-size: 0.78rem; color: #8a8a8f; margin-top: 1px;">Audio Fingerprinting &amp; Content ID</div>
+            </div>
+        </div>
+        """
+    ),
     unsafe_allow_html=True,
 )
 
-# Health Indicator
-healthy, health_msg = check_api_health(API_URL)
-if healthy:
-    st.sidebar.success(health_msg)
-else:
-    st.sidebar.error(health_msg)
-
-if st.sidebar.button("Refresh Status", key="btn_refresh_status"):
-    st.rerun()
-
-st.sidebar.markdown("---")
+# Query cached health status (15s TTL)
+health_status, health_detail = check_api_health(API_URL)
+status_indicator_html = render_health_status_html(health_status)
 
 # Navigation Menu
 is_admin = st.session_state["admin_authenticated"]
@@ -86,15 +109,24 @@ st.sidebar.markdown("---")
 
 # ─── Admin Authentication Section ──────────────────────────────────────────────
 if is_admin:
-    st.sidebar.markdown(
-        """
-        <div style="background: rgba(245, 242, 107, 0.1); border: 1px solid rgba(245, 242, 107, 0.2); border-radius: 16px; padding: 12px; margin-bottom: 12px;">
-            <div style="color: #f5f26b; font-weight: 700; font-size: 0.9rem;">🔒 Admin Mode</div>
-            <div style="color: #8a8a8f; font-size: 0.8rem; margin-top: 2px;">Register & catalog management unlocked</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    col_adm_header, col_adm_ref = st.sidebar.columns([3, 1])
+    with col_adm_header:
+        st.markdown(
+            html(
+                f"""
+                <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+                    <span style="color: #f5f26b; font-weight: 700; font-size: 0.95rem;">Admin mode</span>
+                    {status_indicator_html}
+                </div>
+                """
+            ),
+            unsafe_allow_html=True,
+        )
+    with col_adm_ref:
+        if st.button("Refresh", key="btn_admin_refresh_status"):
+            check_api_health.clear()
+            st.rerun()
+
     if st.sidebar.button("Log out", key="btn_admin_logout", use_container_width=True):
         st.session_state["admin_authenticated"] = False
         st.session_state["admin_key"] = ""
@@ -102,7 +134,7 @@ if is_admin:
             st.session_state["selected_page"] = "Identify"
         st.rerun()
 else:
-    st.sidebar.markdown("<div style='font-size: 0.9rem; font-weight: 700; color: #f5f5f4; margin-bottom: 6px;'>Admin Access</div>", unsafe_allow_html=True)
+    st.sidebar.markdown(html("<div style='font-size: 0.9rem; font-weight: 700; color: #f5f5f4; margin-bottom: 6px;'>Admin Access</div>"), unsafe_allow_html=True)
     admin_input = st.sidebar.text_input(
         "Admin Key",
         type="password",
@@ -127,18 +159,32 @@ else:
             else:
                 st.sidebar.error(f"Login failed: {msg}")
 
+# ─── Sidebar Footer: Health Indicator ──────────────────────────────────────────
 st.sidebar.markdown("---")
-st.sidebar.caption(f"Backend API: `{API_URL}`")
+footer_html = f"""
+<div style="margin-top: 4px;">
+    <div>{status_indicator_html}</div>
+"""
+if health_status in ("offline", "degraded") and health_detail:
+    footer_html += f'<div style="font-size: 0.78rem; color: #8a8a8f; margin-top: 4px; word-break: break-word;">{health_detail}</div>'
+
+footer_html += "</div>"
+st.sidebar.markdown(html(footer_html), unsafe_allow_html=True)
 
 
 # ─── Main Content Header & Page Dispatch ───────────────────────────────────────
 st.markdown(
-    """
-    <div style="text-align: center; margin-top: 8px; margin-bottom: 24px;">
-        <h1 style="font-size: 2.6rem; font-weight: 800; margin: 0 0 6px 0; letter-spacing: -0.03em;">Acosign</h1>
-        <p style="color: #8a8a8f; font-size: 1.05rem; margin: 0;">Audio fingerprinting and Content ID</p>
-    </div>
-    """,
+    html(
+        f"""
+        <div class="aco-wordmark" style="text-align: center; margin-top: 8px; margin-bottom: 24px;">
+            <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 6px;">
+                {LOGO_SVG_36}
+                <h1 style="font-size: 2.6rem; font-weight: 700; margin: 0; letter-spacing: -0.02em;">Acosign</h1>
+            </div>
+            <p style="color: #8a8a8f; font-size: 1.05rem; margin: 0;">Audio fingerprinting and Content ID</p>
+        </div>
+        """
+    ),
     unsafe_allow_html=True,
 )
 

@@ -5,17 +5,20 @@ from __future__ import annotations
 import streamlit as st
 
 from ui.api_client import API_URL, identify_audio
+from ui.styles import html
 
 
 def render_developers_page() -> None:
     """Render the developer API documentation and tester."""
     st.markdown(
-        """
-        <div style="margin-bottom: 20px;">
-            <h1 style="font-size: 2.2rem; font-weight: 800; margin-bottom: 4px;">Developer API</h1>
-            <div style="color: #8a8a8f; font-size: 1rem;">Use the Acosign API to identify audio in your own app.</div>
-        </div>
-        """,
+        html(
+            """
+            <div style="margin-bottom: 20px;">
+                <h1 style="font-size: 2.2rem; font-weight: 800; margin-bottom: 4px;">Developer API</h1>
+                <div style="color: #8a8a8f; font-size: 1rem;">Use the Acosign API to identify audio in your own app.</div>
+            </div>
+            """
+        ),
         unsafe_allow_html=True,
     )
 

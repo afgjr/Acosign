@@ -1,3 +1,4 @@
+<p align="center"><img src="ui/assets/favicon.png" width="64" alt="Acosign logo"/></p>
 <h1 align="center">Acosign</h1>
 
 <p align="center">
