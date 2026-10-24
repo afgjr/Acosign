@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
+import requests
 import streamlit as st
 
-from ui.api_client import register_track
+from ui.api_client import get_tracks, register_track
 from ui.styles import html
 
 
@@ -29,6 +30,68 @@ def render_register_page() -> None:
         ),
         unsafe_allow_html=True,
     )
+
+    # ─── Top: Registration Outcome (persisted across reruns) ───────────────────
+    reg_result = st.session_state.get("register_result")
+    if reg_result is not None:
+        if reg_result.get("success"):
+            cid = reg_result.get("content_id", "N/A")
+            title = reg_result.get("title", "")
+            stored = reg_result.get("hashes_stored", 0)
+            confirmed = reg_result.get("confirmed_from_tracks", False)
+
+            header_text = (
+                "✓ Registered successfully (confirmed from the tracks list)"
+                if confirmed
+                else "✓ Track Successfully Registered"
+            )
+            title_html = (
+                f'<div style="font-size: 1.15rem; font-weight: 700; color: #f5f5f4; margin-bottom: 6px;">{title}</div>'
+                if title
+                else ""
+            )
+            hashes_html = (
+                f'<div style="font-size: 0.9rem; color: #8a8a8f; margin-top: 4px;">Fingerprint hashes stored: {stored:,}</div>'
+                if stored
+                else ""
+            )
+
+            st.markdown(
+                html(
+                    f"""
+                    <div class="aco-card" style="border-left: 4px solid #10b981; margin-bottom: 16px;">
+                        <div style="font-weight: 700; color: #10b981; font-size: 1.15rem; margin-bottom: 8px;">{header_text}</div>
+                        {title_html}
+                        <div style="font-size: 0.95rem; color: #f5f5f4;">Content ID: <code>{cid}</code></div>
+                        {hashes_html}
+                    </div>
+                    """
+                ),
+                unsafe_allow_html=True,
+            )
+        else:
+            err_text = reg_result.get("error", "Registration failed.")
+            st.markdown(
+                html(
+                    f"""
+                    <div class="aco-card" style="border-left: 4px solid #ef4444; margin-bottom: 16px;">
+                        <div style="font-weight: 700; color: #ef4444; font-size: 1.1rem; margin-bottom: 6px;">Registration Failed</div>
+                        <div style="font-size: 0.95rem; color: #f5f5f4;">{err_text}</div>
+                    </div>
+                    """
+                ),
+                unsafe_allow_html=True,
+            )
+
+        if st.button("Register another song", key="btn_clear_reg_result", type="primary"):
+            st.session_state.pop("register_result", None)
+            st.session_state["reg_step"] = 1
+            st.session_state["reg_audio_bytes"] = None
+            st.session_state["reg_audio_name"] = None
+            st.session_state["reg_audio_type"] = None
+            st.rerun()
+
+        st.write("")
 
     # Initialize wizard session state
     if "reg_step" not in st.session_state:
@@ -137,49 +200,120 @@ def render_register_page() -> None:
             elif not audio_bytes:
                 st.error("Audio data is missing. Please go back to Step 1.")
             else:
-                with st.spinner("Fingerprinting, this takes about 30 seconds"):
-                    metadata = {
-                        "title": reg_title.strip(),
-                        "owner": reg_owner.strip(),
-                        "album": reg_album.strip() if reg_album else None,
-                        "genre": reg_genre.strip() if reg_genre else None,
-                        "release_year": int(reg_year_raw) if reg_year_raw is not None else None,
-                        "isrc": reg_isrc.strip() if reg_isrc else None,
-                        "license_type": reg_license,
-                        "description": reg_desc.strip() if reg_desc else None,
-                    }
+                metadata = {
+                    "title": reg_title.strip(),
+                    "owner": reg_owner.strip(),
+                    "album": reg_album.strip() if reg_album else None,
+                    "genre": reg_genre.strip() if reg_genre else None,
+                    "release_year": int(reg_year_raw) if reg_year_raw is not None else None,
+                    "isrc": reg_isrc.strip() if reg_isrc else None,
+                    "license_type": reg_license,
+                    "description": reg_desc.strip() if reg_desc else None,
+                }
 
-                    status_code, result = register_track(
-                        file_name=file_name,
-                        file_bytes=audio_bytes,
-                        mime_type=mime_type,
-                        metadata=metadata,
-                        admin_key=admin_key,
-                    )
+                outcome_result = None
+                with st.status("Fingerprinting and saving, this can take about a minute", expanded=True) as status_box:
+                    try:
+                        status_code, result = register_track(
+                            file_name=file_name,
+                            file_bytes=audio_bytes,
+                            mime_type=mime_type,
+                            metadata=metadata,
+                            admin_key=admin_key,
+                        )
+                    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError, ConnectionError) as exc:
+                        # Call GET /tracks and check if track was created in last 5 minutes
+                        recovered_track = None
+                        try:
+                            t_code, tracks = get_tracks(limit=100)
+                            if t_code == 200 and isinstance(tracks, list):
+                                now = datetime.now(timezone.utc)
+                                for t in tracks:
+                                    if t.get("title") == metadata["title"] and t.get("owner") == metadata["owner"]:
+                                        created_str = t.get("created_at")
+                                        if created_str:
+                                            try:
+                                                dt = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+                                                if dt.tzinfo is None:
+                                                    dt = dt.replace(tzinfo=timezone.utc)
+                                                if abs((now - dt).total_seconds()) <= 300:
+                                                    recovered_track = t
+                                                    break
+                                            except Exception:
+                                                recovered_track = t
+                                                break
+                                        else:
+                                            recovered_track = t
+                                            break
+                        except Exception:
+                            pass
+
+                        if recovered_track is not None:
+                            status_code = 201
+                            result = {
+                                "content_id": recovered_track.get("content_id", "N/A"),
+                                "title": recovered_track.get("title", metadata["title"]),
+                                "hashes_stored": recovered_track.get("hashes_stored", 0),
+                                "confirmed_from_tracks": True,
+                            }
+                        else:
+                            status_code = 0
+                            result = (
+                                f"Registration timed out or connection error ({type(exc).__name__}). "
+                                "Hint: please check the Tracks page to see if your track was saved."
+                            )
 
                     if status_code == 201 and isinstance(result, dict):
                         cid = result.get("content_id", "N/A")
                         stored = result.get("hashes_stored", 0)
-                        st.markdown(
-                            html(
-                                f"""
-                                <div class="aco-card" style="border-left: 4px solid #f5f26b; margin-top: 16px;">
-                                    <div style="font-weight: 700; color: #f5f26b; font-size: 1.1rem; margin-bottom: 8px;">✓ Track Successfully Registered</div>
-                                    <div style="font-size: 0.95rem; color: #f5f5f4;">Content ID: <code>{cid}</code></div>
-                                    <div style="font-size: 0.9rem; color: #8a8a8f; margin-top: 4px;">Fingerprint hashes stored: {stored:,}</div>
-                                </div>
-                                """
-                            ),
-                            unsafe_allow_html=True,
-                        )
-                        # Reset wizard state for the next registration
-                        st.session_state["reg_step"] = 1
-                        st.session_state["reg_audio_bytes"] = None
-                        st.session_state["reg_audio_name"] = None
-                        st.session_state["reg_audio_type"] = None
-                    elif status_code == 409:
-                        st.warning(str(result))
-                    elif status_code in (400, 401, 413, 422):
-                        st.error(str(result))
+                        confirmed = result.get("confirmed_from_tracks", False)
+                        if confirmed:
+                            status_box.update(
+                                label="Registered successfully (confirmed from the tracks list)",
+                                state="complete",
+                                expanded=False,
+                            )
+                        else:
+                            status_box.update(
+                                label="Registration complete",
+                                state="complete",
+                                expanded=False,
+                            )
+
+                        outcome_result = {
+                            "success": True,
+                            "content_id": cid,
+                            "title": result.get("title", metadata["title"]),
+                            "hashes_stored": stored,
+                            "confirmed_from_tracks": confirmed,
+                        }
                     else:
-                        st.error(f"Registration failed ({status_code}): {result}")
+                        status_box.update(
+                            label="Registration failed",
+                            state="error",
+                            expanded=False,
+                        )
+                        if status_code == 409:
+                            err_msg = str(result)
+                        elif status_code == 401:
+                            err_msg = "Wrong admin key. Access denied."
+                        elif status_code in (400, 413, 422):
+                            err_msg = str(result)
+                        elif status_code == 0:
+                            err_msg = str(result)
+                        else:
+                            err_msg = f"Registration failed ({status_code}): {result}"
+
+                        outcome_result = {
+                            "success": False,
+                            "error": err_msg,
+                            "status_code": status_code,
+                        }
+
+                # Store outcome in st.session_state["register_result"] BEFORE resetting wizard or calling st.rerun()
+                st.session_state["register_result"] = outcome_result
+                st.session_state["reg_step"] = 1
+                st.session_state["reg_audio_bytes"] = None
+                st.session_state["reg_audio_name"] = None
+                st.session_state["reg_audio_type"] = None
+                st.rerun()
