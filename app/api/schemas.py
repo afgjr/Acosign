@@ -17,6 +17,12 @@ class RegisterResponse(BaseModel):
     owner: str
     duration_seconds: float
     hashes_stored: int
+    album: str | None = None
+    genre: str | None = None
+    release_year: int | None = None
+    isrc: str | None = None
+    license_type: str | None = None
+    description: str | None = None
 
 
 class IdentifyResponse(BaseModel):
@@ -29,6 +35,12 @@ class IdentifyResponse(BaseModel):
     score: int | None = None
     match_strength: Literal["strong", "weak"] | None = None
     offset_seconds: float | None = None
+    album: str | None = None
+    genre: str | None = None
+    release_year: int | None = None
+    isrc: str | None = None
+    license_type: str | None = None
+    description: str | None = None
 
 
 class TrackOut(BaseModel):
@@ -42,3 +54,9 @@ class TrackOut(BaseModel):
     owner: str
     duration_seconds: float
     created_at: datetime
+    album: str | None = None
+    genre: str | None = None
+    release_year: int | None = None
+    isrc: str | None = None
+    license_type: str | None = None
+    description: str | None = None

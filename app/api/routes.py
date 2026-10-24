@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import (
     APIRouter,
     Depends,
@@ -54,6 +56,21 @@ def _process_audio_bytes(
     return y, duration, hashes
 
 
+@router.get(
+    "/admin/verify",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    dependencies=[Depends(require_admin)],
+    summary="Verify admin API key",
+)
+def verify_admin_key() -> Response:
+    """Verify administrator API key.
+
+    Returns 204 No Content on valid key, 401 on wrong/missing key, 503 if unconfigured.
+    """
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post(
     "/register",
     response_model=RegisterResponse,
@@ -65,9 +82,41 @@ async def register(
     file: UploadFile = File(...),
     title: str = Form(...),
     owner: str = Form(...),
+    album: str | None = Form(None),
+    genre: str | None = Form(None),
+    release_year: int | None = Form(None),
+    isrc: str | None = Form(None),
+    license_type: str | None = Form(None),
+    description: str | None = Form(None),
     db: Session = Depends(get_db),
 ) -> RegisterResponse:
     """Upload and register a full audio track with Content ID."""
+    # Validate optional metadata fields
+    current_year = datetime.now().year
+    if release_year is not None and (release_year < 1900 or release_year > current_year + 1):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"release_year must be between 1900 and {current_year + 1}",
+        )
+
+    for field_name, field_val in [
+        ("album", album),
+        ("genre", genre),
+        ("isrc", isrc),
+        ("license_type", license_type),
+    ]:
+        if field_val is not None and len(field_val) > 200:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"{field_name} must not exceed 200 characters",
+            )
+
+    if description is not None and len(description) > 2000:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="description must not exceed 2000 characters",
+        )
+
     content = await file.read()
 
     # Enforce maximum upload size limit
@@ -115,6 +164,12 @@ async def register(
         title=title,
         owner=owner,
         duration_seconds=duration,
+        album=album,
+        genre=genre,
+        release_year=release_year,
+        isrc=isrc,
+        license_type=license_type,
+        description=description,
     )
     hashes_stored = add_fingerprints(db, track.id, hashes)
 
@@ -125,6 +180,12 @@ async def register(
         owner=track.owner,
         duration_seconds=track.duration_seconds,
         hashes_stored=hashes_stored,
+        album=track.album,
+        genre=track.genre,
+        release_year=track.release_year,
+        isrc=track.isrc,
+        license_type=track.license_type,
+        description=track.description,
     )
 
 
@@ -197,6 +258,12 @@ async def identify(
         score=match.score,
         match_strength=match_strength,
         offset_seconds=offset_seconds,
+        album=track.album,
+        genre=track.genre,
+        release_year=track.release_year,
+        isrc=track.isrc,
+        license_type=track.license_type,
+        description=track.description,
     )
 
 

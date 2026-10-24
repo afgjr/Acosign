@@ -560,3 +560,193 @@ def test_public_endpoints_identify_and_get_tracks_work_without_key(
     assert res_id.status_code == 200
     assert res_id.json()["matched"] is True
 
+
+def test_register_with_all_metadata_and_read_back(client: TestClient) -> None:
+    """Register a track with all optional metadata fields and read back via GET /tracks/{content_id}."""
+    wav_bytes = _generate_wav(duration=6.0)
+    reg_data = {
+        "title": "Extended Track",
+        "owner": "Sound Studio",
+        "album": "Masterpieces",
+        "genre": "Classical",
+        "release_year": "2021",
+        "isrc": "USRC17607839",
+        "license_type": "Creative Commons BY-NC",
+        "description": "A high fidelity test piece with multi-harmonic chords.",
+    }
+
+    res_reg = client.post(
+        "/register",
+        data=reg_data,
+        files={"file": ("track.wav", wav_bytes, "audio/wav")},
+        headers=ADMIN_HEADERS,
+    )
+    assert res_reg.status_code == 201
+    payload = res_reg.json()
+    cid = payload["content_id"]
+    assert payload["album"] == "Masterpieces"
+    assert payload["genre"] == "Classical"
+    assert payload["release_year"] == 2021
+    assert payload["isrc"] == "USRC17607839"
+    assert payload["license_type"] == "Creative Commons BY-NC"
+    assert payload["description"] == "A high fidelity test piece with multi-harmonic chords."
+
+    # Read back via GET /tracks/{content_id}
+    res_get = client.get(f"/tracks/{cid}")
+    assert res_get.status_code == 200
+    get_payload = res_get.json()
+    assert get_payload["content_id"] == cid
+    assert get_payload["album"] == "Masterpieces"
+    assert get_payload["genre"] == "Classical"
+    assert get_payload["release_year"] == 2021
+    assert get_payload["isrc"] == "USRC17607839"
+    assert get_payload["license_type"] == "Creative Commons BY-NC"
+    assert get_payload["description"] == "A high fidelity test piece with multi-harmonic chords."
+
+
+def test_register_with_no_optional_metadata_defaults_to_none(client: TestClient) -> None:
+    """Registering with no optional metadata succeeds and fields default to None."""
+    wav_bytes = _generate_wav(duration=6.0)
+    res_reg = client.post(
+        "/register",
+        data={"title": "Minimal Track", "owner": "Bob"},
+        files={"file": ("track.wav", wav_bytes, "audio/wav")},
+        headers=ADMIN_HEADERS,
+    )
+    assert res_reg.status_code == 201
+    payload = res_reg.json()
+    cid = payload["content_id"]
+    assert payload["album"] is None
+    assert payload["genre"] is None
+    assert payload["release_year"] is None
+    assert payload["isrc"] is None
+    assert payload["license_type"] is None
+    assert payload["description"] is None
+
+    # Read back via GET /tracks/{content_id}
+    res_get = client.get(f"/tracks/{cid}")
+    assert res_get.status_code == 200
+    get_payload = res_get.json()
+    assert get_payload["album"] is None
+    assert get_payload["genre"] is None
+    assert get_payload["release_year"] is None
+
+
+def test_register_invalid_release_year_returns_422(client: TestClient) -> None:
+    """Out-of-range release_year returns 422 Unprocessable Entity."""
+    wav_bytes = _generate_wav(duration=4.0)
+
+    # Year before 1900
+    res_old = client.post(
+        "/register",
+        data={"title": "Too Old", "owner": "Historian", "release_year": "1899"},
+        files={"file": ("track.wav", wav_bytes, "audio/wav")},
+        headers=ADMIN_HEADERS,
+    )
+    assert res_old.status_code == 422
+
+    # Year far in future
+    res_future = client.post(
+        "/register",
+        data={"title": "Too Future", "owner": "SciFi", "release_year": "2099"},
+        files={"file": ("track.wav", wav_bytes, "audio/wav")},
+        headers=ADMIN_HEADERS,
+    )
+    assert res_future.status_code == 422
+
+
+def test_register_string_fields_exceeding_max_length_returns_422(client: TestClient) -> None:
+    """String metadata fields exceeding length limits return 422."""
+    wav_bytes = _generate_wav(duration=4.0)
+
+    # album exceeding 200 chars
+    res_album = client.post(
+        "/register",
+        data={"title": "Track", "owner": "Artist", "album": "A" * 201},
+        files={"file": ("track.wav", wav_bytes, "audio/wav")},
+        headers=ADMIN_HEADERS,
+    )
+    assert res_album.status_code == 422
+
+    # description exceeding 2000 chars
+    res_desc = client.post(
+        "/register",
+        data={"title": "Track", "owner": "Artist", "description": "D" * 2001},
+        files={"file": ("track.wav", wav_bytes, "audio/wav")},
+        headers=ADMIN_HEADERS,
+    )
+    assert res_desc.status_code == 422
+
+
+def test_identify_returns_new_metadata_fields(client: TestClient) -> None:
+    """POST /identify returns extended metadata fields for matched track."""
+    wav_bytes = _generate_wav(duration=8.0)
+    reg_data = {
+        "title": "Identifiable Track",
+        "owner": "Producer",
+        "album": "Synth Wave 80s",
+        "genre": "Synthwave",
+        "release_year": "1984",
+        "isrc": "USABC8400001",
+        "license_type": "Standard Commercial",
+        "description": "Retro wave synth recording.",
+    }
+    reg_res = client.post(
+        "/register",
+        data=reg_data,
+        files={"file": ("track.wav", wav_bytes, "audio/wav")},
+        headers=ADMIN_HEADERS,
+    )
+    assert reg_res.status_code == 201
+    cid = reg_res.json()["content_id"]
+
+    # Query with a 4.0s slice
+    clip_bytes = _slice_wav(wav_bytes, start_sec=2.0, duration_sec=4.0)
+    ident_res = client.post(
+        "/identify",
+        files={"file": ("clip.wav", clip_bytes, "audio/wav")},
+    )
+    assert ident_res.status_code == 200
+    payload = ident_res.json()
+    assert payload["matched"] is True
+    assert payload["content_id"] == cid
+    assert payload["title"] == "Identifiable Track"
+    assert payload["owner"] == "Producer"
+    assert payload["album"] == "Synth Wave 80s"
+    assert payload["genre"] == "Synthwave"
+    assert payload["release_year"] == 1984
+    assert payload["isrc"] == "USABC8400001"
+    assert payload["license_type"] == "Standard Commercial"
+    assert payload["description"] == "Retro wave synth recording."
+
+
+def test_admin_verify_success_204(client: TestClient) -> None:
+    """GET /admin/verify with valid X-API-Key returns 204 No Content."""
+    res = client.get("/admin/verify", headers=ADMIN_HEADERS)
+    assert res.status_code == 204
+    assert res.text == ""
+
+
+def test_admin_verify_missing_or_wrong_key_401(client: TestClient) -> None:
+    """GET /admin/verify with missing or wrong key returns 401 Unauthorized."""
+    # Missing key
+    res_no_key = client.get("/admin/verify")
+    assert res_no_key.status_code == 401
+    assert res_no_key.json() == {"detail": "Invalid or missing admin key"}
+
+    # Wrong key
+    res_wrong_key = client.get("/admin/verify", headers={"X-API-Key": "wrong-key"})
+    assert res_wrong_key.status_code == 401
+    assert res_wrong_key.json() == {"detail": "Invalid or missing admin key"}
+
+
+def test_admin_verify_key_unset_503(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /admin/verify when ADMIN_API_KEY is unconfigured returns 503."""
+    monkeypatch.setattr(settings, "ADMIN_API_KEY", "")
+    res = client.get("/admin/verify", headers=ADMIN_HEADERS)
+    assert res.status_code == 503
+    assert res.json() == {"detail": "Admin key not configured"}
+
+
