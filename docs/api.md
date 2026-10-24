@@ -113,7 +113,7 @@ Processes an audio file through the STFT spectrogram and landmark peak pairing p
 #### Request Fields (`multipart/form-data`)
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `file` | Binary File | Yes | Audio file (WAV, MP3, FLAC, OGG). Max size: 25 MB (`MAX_UPLOAD_MB`). |
+| `file` | Binary File | Yes | Audio file (WAV, MP3, FLAC, OGG, M4A, AAC; FFmpeg fallback supported). Max size: 25 MB (`MAX_UPLOAD_MB`). Up to 600s decoded (`MAX_DECODE_SECONDS`). |
 | `title` | string | Yes | Track title (e.g. `"Midnight Groove"`). |
 | `owner` | string | Yes | Rights holder or artist name (e.g. `"Studio Records"`). |
 | `album` | string | No | Album or collection name (max 200 chars). |
@@ -192,10 +192,12 @@ POST /identify
 
 Takes a short query audio clip (minimum 3.0 seconds), computes fingerprint hashes, queries the inverted database index for matching hashes, and runs temporal offset alignment voting to identify the matching track. Public endpoint (no key required).
 
+> **Trimming Rule**: If query audio exceeds `MAX_QUERY_SECONDS` (default: 20.0 seconds), the audio is automatically trimmed after decoding to a window of that exact duration from the middle of the audio (`MAX_QUERY_SECONDS * SAMPLE_RATE` samples). This provides optimal recognition performance on long uploads. Trimming applies exclusively to `/identify` and is never applied to `/register`.
+
 #### Request Fields (`multipart/form-data`)
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `file` | Binary File | Yes | Audio snippet (minimum 3.0 seconds duration). |
+| `file` | Binary File | Yes | Audio snippet (minimum 3.0 seconds duration; WAV, MP3, M4A, FLAC, OGG, AAC; FFmpeg fallback supported). Clips longer than 20s are trimmed to the middle window. |
 
 #### Responses
 - **`200 OK` (Match Found)**:

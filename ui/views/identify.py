@@ -41,6 +41,7 @@ def render_identify_page() -> None:
             key="uploader_identify",
             help="Supported formats: WAV, MP3, M4A (minimum 3 seconds)",
         )
+        st.caption("Clips of 5 to 15 seconds work best. Long files are trimmed.")
 
     ident_btn = st.button("Identify", type="primary", key="ident_btn", use_container_width=True)
 

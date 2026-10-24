@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import logging
+import time
+
 from fastapi import (
     APIRouter,
     Depends,
@@ -41,7 +44,27 @@ from app.engine.fingerprint import (
 )
 from app.engine.matcher import find_best_match
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+
+
+def trim_query_audio(y: np.ndarray) -> np.ndarray:
+    """Trim query audio to settings.MAX_QUERY_SECONDS from the middle if longer."""
+    max_samples = int(settings.MAX_QUERY_SECONDS * settings.SAMPLE_RATE)
+    if len(y) > max_samples:
+        start = (len(y) - max_samples) // 2
+        return y[start : start + max_samples]
+    return y
+
+
+def _compute_spectrogram_and_peaks(
+    y: np.ndarray,
+) -> tuple[np.ndarray, list[tuple[int, int]]]:
+    """Compute spectrogram and extract peaks."""
+    spec = compute_spectrogram(y)
+    peaks = find_peaks(spec)
+    return spec, peaks
 
 
 def _process_audio_bytes(
@@ -133,21 +156,36 @@ async def register(
             detail="Uploaded file is empty",
         )
 
-    # Process audio in a threadpool to avoid blocking event loop
+    # Stage 1: decode
     try:
-        _, duration, hashes = await run_in_threadpool(_process_audio_bytes, content)
+        t0 = time.perf_counter()
+        y = await run_in_threadpool(load_audio, content)
+        duration = float(len(y) / settings.SAMPLE_RATE)
+        logger.info("Register decode stage completed in %.3fs", time.perf_counter() - t0)
     except AudioDecodeError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Audio decoding failed: {exc}",
         ) from exc
 
-    # Duplicate check: check against existing fingerprints in the database
+    # Stage 2: spectrogram+peaks
+    t0 = time.perf_counter()
+    _, peaks = await run_in_threadpool(_compute_spectrogram_and_peaks, y)
+    logger.info("Register spectrogram+peaks stage completed in %.3fs", time.perf_counter() - t0)
+
+    # Stage 3: hashing
+    t0 = time.perf_counter()
+    hashes = await run_in_threadpool(generate_hashes, peaks)
+    logger.info("Register hashing stage completed in %.3fs", time.perf_counter() - t0)
+
+    # Stage 4: duplicate check
+    t0 = time.perf_counter()
     query_hashes = [h for h, _ in hashes]
     db_hits = find_hits(db, query_hashes)
     if db_hits:
         dup_match = find_best_match(hashes, db_hits, min_score=settings.DUPLICATE_SCORE)
         if dup_match is not None and dup_match.score >= settings.DUPLICATE_SCORE:
+            logger.info("Register duplicate check stage completed in %.3fs (duplicate detected)", time.perf_counter() - t0)
             existing_track = get_track(db, dup_match.track_id)
             existing_content_id = existing_track.content_id if existing_track else "unknown"
             raise HTTPException(
@@ -157,8 +195,10 @@ async def register(
                     "content_id": existing_content_id,
                 },
             )
+    logger.info("Register duplicate check stage completed in %.3fs", time.perf_counter() - t0)
 
-    # Persist track metadata and fingerprints
+    # Stage 5: insert
+    t0 = time.perf_counter()
     track = create_track(
         db,
         title=title,
@@ -172,6 +212,7 @@ async def register(
         description=description,
     )
     hashes_stored = add_fingerprints(db, track.id, hashes)
+    logger.info("Register insert stage completed in %.3fs", time.perf_counter() - t0)
 
     return RegisterResponse(
         content_id=track.content_id,
@@ -216,14 +257,20 @@ async def identify(
             detail="Uploaded file is empty",
         )
 
-    # Process clip in a threadpool to avoid blocking event loop
+    # Stage 1: decode (+ trim if longer than MAX_QUERY_SECONDS)
     try:
-        _, duration, hashes = await run_in_threadpool(_process_audio_bytes, content)
+        t0 = time.perf_counter()
+        y = await run_in_threadpool(load_audio, content)
+        logger.info("Identify decode stage completed in %.3fs", time.perf_counter() - t0)
     except AudioDecodeError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Audio decoding failed: {exc}",
         ) from exc
+
+    # Trim to middle window if audio exceeds MAX_QUERY_SECONDS
+    y = trim_query_audio(y)
+    duration = float(len(y) / settings.SAMPLE_RATE)
 
     # Reject query clips shorter than MIN_QUERY_SECONDS
     if duration < settings.MIN_QUERY_SECONDS:
@@ -235,11 +282,22 @@ async def identify(
             ),
         )
 
-    # Query candidate database landmarks
+    # Stage 2: spectrogram+peaks
+    t0 = time.perf_counter()
+    _, peaks = await run_in_threadpool(_compute_spectrogram_and_peaks, y)
+    logger.info("Identify spectrogram+peaks stage completed in %.3fs", time.perf_counter() - t0)
+
+    # Stage 3: hashing
+    t0 = time.perf_counter()
+    hashes = await run_in_threadpool(generate_hashes, peaks)
+    logger.info("Identify hashing stage completed in %.3fs", time.perf_counter() - t0)
+
+    # Stage 4: db lookup and matching
+    t0 = time.perf_counter()
     query_hashes = [h for h, _ in hashes]
     db_hits = find_hits(db, query_hashes)
-
     match = find_best_match(hashes, db_hits)
+    logger.info("Identify db lookup and matching stage completed in %.3fs", time.perf_counter() - t0)
     if match is None:
         return IdentifyResponse(matched=False)
 

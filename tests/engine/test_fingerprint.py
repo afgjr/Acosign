@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 
 import librosa
@@ -334,3 +336,112 @@ def test_fingerprint_peaks_convenience() -> None:
     assert peaks_direct == peaks_pipeline, (
         "fingerprint_peaks must match load -> spectrogram -> peaks"
     )
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 4. ffmpeg fallback tests
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_load_audio_ffmpeg_fallback_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Monkeypatch subprocess.run to return WAV bytes and verify fallback path."""
+    monkeypatch.setattr(shutil, "which", lambda cmd: "/usr/bin/ffmpeg" if cmd == "ffmpeg" else None)
+
+    y_expected = _generate_sine(freq=440.0, duration=3.0)
+    fake_wav_bytes = _make_wav_bytes(y_expected)
+
+    called_cmd: list[list[str]] = []
+
+    def mock_run(cmd: list[str], *args, **kwargs) -> subprocess.CompletedProcess:
+        called_cmd.append(cmd)
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=fake_wav_bytes, stderr=b"")
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+
+    # Force librosa.load to fail so execution reaches the ffmpeg fallback
+    def failing_librosa_load(*args, **kwargs):
+        raise RuntimeError("librosa failed to decode container")
+
+    monkeypatch.setattr(librosa, "load", failing_librosa_load)
+
+    dummy_audio = b"CUSTOM_CONTAINER_AUDIO_BYTES_TEST_123456"
+    y = load_audio(dummy_audio)
+
+    assert len(called_cmd) == 1, "ffmpeg subprocess must have been called exactly once"
+    cmd = called_cmd[0]
+    assert "ffmpeg" in cmd[0]
+    assert "-vn" in cmd
+    assert "-ac" in cmd and "1" in cmd
+    assert "-ar" in cmd and str(settings.SAMPLE_RATE) in cmd
+    assert "-t" in cmd and str(settings.MAX_DECODE_SECONDS) in cmd
+    assert "-f" in cmd and "wav" in cmd
+    assert isinstance(y, np.ndarray)
+    assert y.ndim == 1
+    assert y.dtype == np.float32
+    assert abs(len(y) - len(y_expected)) <= 10
+
+
+def test_load_audio_ffmpeg_garbage_raises_audio_decode_error() -> None:
+    """Garbage bytes that fail both librosa and ffmpeg raise AudioDecodeError."""
+    garbage = b"NON_AUDIO_GARBAGE_PAYLOAD_XYZ_9876543210"
+    with pytest.raises(AudioDecodeError):
+        load_audio(garbage)
+
+
+def test_load_audio_ffmpeg_missing_raises_audio_decode_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When standard decoding fails and ffmpeg is missing on PATH, raise AudioDecodeError."""
+    monkeypatch.setattr(shutil, "which", lambda cmd: None)
+
+    def failing_librosa_load(*args, **kwargs):
+        raise RuntimeError("librosa cannot decode")
+
+    monkeypatch.setattr(librosa, "load", failing_librosa_load)
+
+    dummy_audio = b"CORRUPT_BYTES_NO_FFMPEG"
+    with pytest.raises(AudioDecodeError, match="ffmpeg is not installed"):
+        load_audio(dummy_audio)
+
+
+def test_load_audio_real_m4a_with_ffmpeg(tmp_path: Path) -> None:
+    """Generate a real M4A with ffmpeg from synthetic WAV and verify load_audio decodes it."""
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if not ffmpeg_bin:
+        pytest.skip("ffmpeg not installed on PATH")
+
+    wav_path = tmp_path / "synthetic.wav"
+    m4a_path = tmp_path / "synthetic.m4a"
+
+    y_raw = _generate_sine(freq=440.0, duration=3.0)
+    wav_bytes = _make_wav_bytes(y_raw)
+    wav_path.write_bytes(wav_bytes)
+
+    # Convert to M4A container with AAC audio using ffmpeg
+    cmd = [
+        ffmpeg_bin,
+        "-nostdin",
+        "-y",
+        "-i",
+        str(wav_path),
+        "-c:a",
+        "aac",
+        str(m4a_path),
+    ]
+    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    assert res.returncode == 0, f"ffmpeg failed to create M4A: {res.stderr.decode('utf-8', errors='replace')}"
+
+    # Verify loading from disk path
+    y_from_file = load_audio(m4a_path)
+    assert isinstance(y_from_file, np.ndarray)
+    assert y_from_file.ndim == 1
+    assert y_from_file.dtype == np.float32
+    expected_samples = int(3.0 * settings.SAMPLE_RATE)
+    assert abs(len(y_from_file) - expected_samples) <= int(settings.SAMPLE_RATE * 0.1)
+
+    # Verify loading from raw bytes
+    m4a_bytes = m4a_path.read_bytes()
+    y_from_bytes = load_audio(m4a_bytes)
+    assert isinstance(y_from_bytes, np.ndarray)
+    assert y_from_bytes.ndim == 1
+    assert y_from_bytes.dtype == np.float32
+    assert abs(len(y_from_bytes) - len(y_from_file)) <= 100
+

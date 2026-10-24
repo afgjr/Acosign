@@ -9,11 +9,14 @@ from __future__ import annotations
 import io
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 
 import librosa
 import numpy as np
 from scipy.ndimage import maximum_filter
+import soundfile
 
 from app.core.config import settings
 
@@ -31,6 +34,61 @@ def _detect_audio_suffix(data: bytes) -> str:
     return ".audio"
 
 
+def _ffmpeg_decode_file(file_path: str | Path) -> np.ndarray:
+    """Decode audio file via ffmpeg subprocess fallback returning float32 mono array."""
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if not ffmpeg_bin:
+        raise AudioDecodeError("ffmpeg is not installed or not found on PATH.")
+
+    cmd = [
+        ffmpeg_bin,
+        "-nostdin",
+        "-v",
+        "error",
+        "-i",
+        str(file_path),
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        str(settings.SAMPLE_RATE),
+        "-t",
+        str(settings.MAX_DECODE_SECONDS),
+        "-f",
+        "wav",
+        "-",
+    ]
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AudioDecodeError("ffmpeg decoding timed out after 60 seconds.") from exc
+    except Exception as exc:
+        raise AudioDecodeError(f"ffmpeg subprocess execution failed: {exc}") from exc
+
+    if proc.returncode != 0:
+        err_msg = proc.stderr.decode("utf-8", errors="replace").strip()
+        raise AudioDecodeError(f"ffmpeg decoding failed (code {proc.returncode}): {err_msg}")
+
+    if not proc.stdout:
+        raise AudioDecodeError("ffmpeg produced empty audio output.")
+
+    try:
+        y, _ = soundfile.read(io.BytesIO(proc.stdout), dtype="float32")
+    except Exception as exc:
+        raise AudioDecodeError(f"Failed to read WAV audio produced by ffmpeg: {exc}") from exc
+
+    if y.ndim > 1:
+        y = np.mean(y, axis=1)
+    return np.asarray(y, dtype=np.float32)
+
+
 def _load_audio_from_bytes(data: bytes) -> np.ndarray:
     """Decode raw audio bytes in-memory or via a temporary file fallback."""
     if len(data) == 0:
@@ -43,7 +101,7 @@ def _load_audio_from_bytes(data: bytes) -> np.ndarray:
     except Exception:
         pass
 
-    # 2. If decoding fails, write a temp file and retry (e.g. ffmpeg fallback)
+    # 2. If decoding fails, write a temp file and retry (librosa then ffmpeg fallback)
     tmp_path: str | None = None
     try:
         suffix = _detect_audio_suffix(data)
@@ -51,10 +109,13 @@ def _load_audio_from_bytes(data: bytes) -> np.ndarray:
             tmp.write(data)
             tmp_path = tmp.name
 
-        y, _ = librosa.load(tmp_path, sr=settings.SAMPLE_RATE, mono=True)
-        return np.asarray(y, dtype=np.float32)
-    except Exception as exc:
-        raise AudioDecodeError(f"Failed to decode audio bytes: {exc}") from exc
+        try:
+            y, _ = librosa.load(tmp_path, sr=settings.SAMPLE_RATE, mono=True)
+            return np.asarray(y, dtype=np.float32)
+        except Exception:
+            pass
+
+        return _ffmpeg_decode_file(tmp_path)
     finally:
         if tmp_path is not None and os.path.exists(tmp_path):
             try:
@@ -73,8 +134,10 @@ def _load_audio_from_path(path: Path) -> np.ndarray:
     try:
         y, _ = librosa.load(str(path), sr=settings.SAMPLE_RATE, mono=True)
         return np.asarray(y, dtype=np.float32)
-    except Exception as exc:
-        raise AudioDecodeError(f"Failed to decode audio file '{path}': {exc}") from exc
+    except Exception:
+        pass
+
+    return _ffmpeg_decode_file(path)
 
 
 def load_audio(source: str | Path | bytes) -> np.ndarray:

@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     MIN_AUDIO_DURATION: float = 1.0
     """Minimum audio duration in seconds. Audio shorter than this is rejected."""
 
+    MAX_DECODE_SECONDS: int = 600
+    """Maximum duration in seconds to decode via ffmpeg subprocess fallback."""
+
     # ------------------------------------------------------------------ #
     # Spectrogram                                                          #
     # ------------------------------------------------------------------ #
@@ -107,6 +110,9 @@ class Settings(BaseSettings):
 
     MIN_QUERY_SECONDS: float = 3.0
     """Minimum duration in seconds for query clips in identification."""
+
+    MAX_QUERY_SECONDS: float = 20.0
+    """Maximum duration in seconds for query clips in identification. Longer clips are trimmed."""
 
     STRONG_SCORE: int = 30
     """Score threshold for classifying match strength as 'strong' vs 'weak'."""
