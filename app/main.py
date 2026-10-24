@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import logging
+import time
 
 from fastapi import Depends, FastAPI, Request, status
 from fastapi.exception_handlers import (
@@ -18,14 +20,41 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api import router as api_router
 from app.core.config import settings
-from app.db.session import get_db
+from app.db.session import get_db, init_db
 
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan handler initializing database on startup with up to 10 retries."""
+    max_retries = 10
+    retry_delay = 1.0
+    for attempt in range(1, max_retries + 1):
+        try:
+            init_db()
+            logger.info("Database initialized successfully on attempt %d.", attempt)
+            break
+        except Exception as exc:
+            if attempt == max_retries:
+                logger.error("Could not initialize database after %d attempts: %s", max_retries, exc)
+            else:
+                logger.warning(
+                    "Database not ready on attempt %d/%d (%s). Retrying in %.1fs...",
+                    attempt,
+                    max_retries,
+                    exc,
+                    retry_delay,
+                )
+                time.sleep(retry_delay)
+    yield
+
 
 app = FastAPI(
     title="AudioSignature API",
     description="Acoustic fingerprinting and cryptographic provenance engine",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # ── CORS Middleware ────────────────────────────────────────────────────────────
