@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy.orm import Session
 import soundfile as sf
 
+from app.api.routes import trim_query_audio
 from app.core.config import settings
 from app.db.models import Track
 
@@ -748,5 +749,112 @@ def test_admin_verify_key_unset_503(
     res = client.get("/admin/verify", headers=ADMIN_HEADERS)
     assert res.status_code == 503
     assert res.json() == {"detail": "Admin key not configured"}
+
+
+def _generate_long_wav(duration: float = 60.0) -> bytes:
+    """Generate a multi-second harmonic WAV cycling through chords."""
+    sr = settings.SAMPLE_RATE
+    total_samples = int(sr * duration)
+    t = np.linspace(0, duration, total_samples, endpoint=False, dtype=np.float32)
+    base_chords = [
+        [261, 329, 392, 523, 659],
+        [293, 369, 440, 587, 739],
+        [329, 415, 493, 659, 830],
+        [349, 440, 523, 698, 880],
+        [392, 493, 587, 783, 987],
+        [440, 554, 659, 880, 1108],
+        [493, 622, 739, 987, 1244],
+        [523, 659, 783, 1046, 1318],
+        [587, 739, 880, 1174, 1479],
+        [659, 830, 987, 1318, 1661],
+    ]
+    audio = np.zeros_like(t)
+    num_seconds = int(np.ceil(duration))
+    for sec_i in range(num_seconds):
+        chord = base_chords[sec_i % len(base_chords)]
+        s_idx = int(sec_i * sr)
+        e_idx = min(int((sec_i + 1) * sr), total_samples)
+        if s_idx >= total_samples:
+            break
+        t_sec = t[s_idx:e_idx]
+        sig = np.zeros_like(t_sec)
+        for k, f in enumerate(chord):
+            mod = 1.0 + 0.05 * np.sin(2.0 * np.pi * 5.0 * t_sec)
+            sig += (1.0 / (k + 1)) * np.sin(2.0 * np.pi * f * mod * t_sec)
+        audio[s_idx:e_idx] = sig
+
+    max_val = float(np.max(np.abs(audio)))
+    if max_val > 0:
+        audio = audio / max_val
+
+    buf = io.BytesIO()
+    sf.write(buf, audio, sr, format="WAV")
+    return buf.getvalue()
+
+
+def test_trim_query_audio_exact_sample_count() -> None:
+    """trim_query_audio returns exactly MAX_QUERY_SECONDS * SAMPLE_RATE samples from middle."""
+    sr = settings.SAMPLE_RATE
+    max_seconds = settings.MAX_QUERY_SECONDS
+    expected_samples = int(max_seconds * sr)
+
+    # 1. 60-second array is trimmed to exact sample count
+    duration_60 = 60.0
+    arr_60 = np.arange(int(duration_60 * sr), dtype=np.float32)
+    trimmed_60 = trim_query_audio(arr_60)
+    assert len(trimmed_60) == expected_samples
+
+    # Verify that the middle window was sliced
+    start_60 = (len(arr_60) - expected_samples) // 2
+    np.testing.assert_array_equal(trimmed_60, arr_60[start_60 : start_60 + expected_samples])
+
+    # 2. 25-second array is also trimmed to exact sample count
+    duration_25 = 25.0
+    arr_25 = np.arange(int(duration_25 * sr), dtype=np.float32)
+    trimmed_25 = trim_query_audio(arr_25)
+    assert len(trimmed_25) == expected_samples
+    start_25 = (len(arr_25) - expected_samples) // 2
+    np.testing.assert_array_equal(trimmed_25, arr_25[start_25 : start_25 + expected_samples])
+
+    # 3. Audio shorter than or equal to MAX_QUERY_SECONDS is not trimmed
+    duration_10 = 10.0
+    arr_10 = np.arange(int(duration_10 * sr), dtype=np.float32)
+    trimmed_10 = trim_query_audio(arr_10)
+    assert len(trimmed_10) == len(arr_10)
+    np.testing.assert_array_equal(trimmed_10, arr_10)
+
+
+def test_identify_long_upload_trimmed_matches_track(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    """A 60-second synthetic upload is trimmed during identify and still matches registered track."""
+    wav_60s = _generate_long_wav(duration=60.0)
+
+    # Register full 60-second track
+    reg_res = client.post(
+        "/register",
+        headers=ADMIN_HEADERS,
+        data={"title": "Symphony No. 60", "owner": "Philharmonic Studio"},
+        files={"file": ("symphony.wav", wav_60s, "audio/wav")},
+    )
+    assert reg_res.status_code == 201
+    reg_data = reg_res.json()
+    assert reg_data["content_id"] is not None
+
+    # Identify with the same 60-second file (which will be trimmed to MAX_QUERY_SECONDS)
+    ident_res = client.post(
+        "/identify",
+        files={"file": ("query_clip.wav", wav_60s, "audio/wav")},
+    )
+    assert ident_res.status_code == 200
+    ident_data = ident_res.json()
+
+    assert ident_data["matched"] is True
+    assert ident_data["content_id"] == reg_data["content_id"]
+    assert ident_data["title"] == "Symphony No. 60"
+    assert ident_data["owner"] == "Philharmonic Studio"
+    assert ident_data["score"] > 0
+
 
 
