@@ -1,4 +1,3 @@
-<p align="center"><img src="ui/assets/favicon.png" width="64" alt="Acosign logo"/></p>
 <h1 align="center">Acosign</h1>
 
 <p align="center">
@@ -38,31 +37,19 @@ Once registered, the platform provides an **API** so that users, apps, or platfo
 
 ## 🚀 Quick Start
 
-1. **Clone and enter the repository:**
-   ```bash
-   git clone https://github.com/afgjr/Acosign.git
-   cd Acosign
-   ```
+> **Note:** Full containerized deployment via Docker Compose will be detailed here once the Docker service stack setup is finalized.
 
-2. **Configure environment:**
-   ```bash
-   cp .env.example .env
-   ```
-   Open `.env` and configure your `ADMIN_API_KEY` (required for registering tracks and catalog administration).
+```bash
+# Clone the repository
+git clone https://github.com/afgjr/Acosign.git
+cd Acosign
 
-   > [!IMPORTANT]
-   > Change the default database credentials (`POSTGRES_PASSWORD` and `POSTGRES_USER`) in `.env` before any real or production deployment.
+# Copy environment file
+cp .env.example .env
 
-3. **Build and launch with Docker Compose:**
-   ```bash
-   docker compose up --build
-   ```
-   This builds and starts the PostgreSQL database (`db`), FastAPI backend (`api`), and Streamlit UI (`ui`).
-
-4. **Access the services:**
-   - **Web Application:** [http://localhost:8501](http://localhost:8501)
-   - **Interactive API Documentation:** [http://localhost:8000/docs](http://localhost:8000/docs)
-   - **API Health Check:** [http://localhost:8000/health](http://localhost:8000/health)
+# Run services with Docker Compose (coming in Phase 3)
+# docker compose up -d
+```
 
 ---
 
@@ -178,7 +165,8 @@ python -m pytest -q
 
 ## 🛠 Tech Stack
 
-- **Backend / API:** FastAPI (Python)
+- **
+Backend / API:** FastAPI (Python)
 - **Audio Processing:** Librosa / NumPy / SciPy
 - **Database:** PostgreSQL (SQLAlchemy 2.0)
 - **Frontend / Demo:** Streamlit
