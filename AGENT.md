@@ -9,8 +9,8 @@ FastAPI, Librosa/NumPy/SciPy, PostgreSQL (SQLAlchemy), Streamlit, Docker Compose
 Python 3.11. Type hints everywhere.
 
 ## Reference
-Algorithm reference: github.com/worldveil/dejavu (peak finding → hash pairs →
-offset voting). Reimplement; do not copy code.
+Algorithm: landmark fingerprinting (peak finding -> hash pairs ->
+offset voting), implemented from scratch.
 
 ## Structure
 app/

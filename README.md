@@ -1,173 +1,155 @@
+<p align="center">
+  <img src="ui/assets/favicon.png" alt="Acosign logo" width="96" height="96">
+</p>
+
 <h1 align="center">Acosign</h1>
 
 <p align="center">
-  <b>Audio Digital Signature & Content ID Platform</b><br>
-  <i>An API platform that converts audio into unique digital signatures for copyright protection and ownership verification.</i>
+  <b>Audio digital signature and Content ID platform</b><br>
+  <i>An API that turns audio into a unique fingerprint, so copyright owners can be found from a short clip.</i>
 </p>
-
----
-
 ## Developer
 
 | Name | ID | GitHub | Role |
 |------|----|--------|------|
-| **Abel Fekede** | CTC-5298-26 | [@afgjr](https://github.com/afgjr) | Full Stack Developer |
+| **Abel Fekede** | CTC-5298-26 | [@afgjr](https://github.com/afgjr) | Full stack developer |
 
----
+## What it does
 
-## 💡 What is This Project?
+Acosign takes an audio track, creates an acoustic fingerprint, stores it with a unique Content ID and the owner's details, and then identifies unknown clips against everything registered. Play 5 seconds of a song near the microphone and it returns the title and owner.
 
-This project is a platform that takes an audio file, generates a unique **digital signature (acoustic fingerprint)** from it, stores that signature in a database, and assigns it a unique **Content ID**.
+## Demo video
 
-Once registered, the platform provides an **API** so that users, apps, or platforms can upload an unknown audio clip to check if it matches any registered sound in the database.
+[![Watch the Acosign demo](docs/img/identify-1.png)](https://drive.google.com/file/d/1XzTsCR529qfJbZZ41-dHr9OdaNkniElT/view?usp=drive_link)
 
----
+A 3-minute walkthrough: identifying a song from the microphone, uploading a file, browsing tracks, the developer API, and registering a track as admin.
 
-## ⚙️ How It Works (Simple Flow)
+## Screenshots
 
-1. **Upload Audio:** An artist or owner uploads an audio track (MP3/WAV).
-2. **Generate Signature:** The system analyzes the audio frequencies and converts the sound into a unique digital signature.
-3. **Store & Assign Content ID:** The signature is saved in the database with a unique Content ID and owner details.
-4. **Search / Verification API:** 
-   - A user sends any audio snippet to the API.
-   - The platform extracts its signature and searches the database.
-   - If a match is found, the API returns the Content ID, track title, and owner.
+**Identify**
 
----
+| Listening | Result |
+|---|---|
+| ![Identify, recording](docs/img/identify-1.png) | ![Identify, result](docs/img/identify-2.png) |
 
-## 🚀 Quick Start
+**Catalogue and developers**
 
-> **Note:** Full containerized deployment via Docker Compose will be detailed here once the Docker service stack setup is finalized.
+| Tracks | Developers |
+|---|---|
+| ![Tracks](docs/img/tracks.png) | ![Developers](docs/img/developers.png) |
+
+**Register (admin)**
+
+| Step 1: choose the file | Step 2: add the details |
+|---|---|
+| ![Register step 1](docs/img/register-1.png) | ![Register step 2](docs/img/register-2.png) |
+
+## How it works
+
+```mermaid
+flowchart LR
+    A[Audio upload or mic] --> B[Spectrogram]
+    B --> C[Peak detection]
+    C --> D[Landmark hashes]
+    D --> E[(PostgreSQL)]
+    F[Unknown clip] --> G[Same pipeline]
+    G --> H[Look up hashes]
+    E --> H
+    H --> I[Offset voting]
+    I --> J[Title, owner, Content ID]
+```
+
+1. **Spectrogram:** the audio becomes a time-frequency map.
+2. **Peaks:** only the loudest points are kept, because they survive noise and compression.
+3. **Hashes:** each peak is paired with its neighbours and packed into a 34-bit integer.
+4. **Matching:** hashes from the clip are looked up in the database. For each track, the system counts how many hashes agree on one time offset. The true track shows a sharp spike, so coincidental matches are rejected.
+
+Details are in [docs/architecture.md](docs/architecture.md) implemented with Librosa, NumPy and SciPy.
+
+
+
+## Quick start (Docker)
 
 ```bash
-# Clone the repository
 git clone https://github.com/afgjr/Acosign.git
 cd Acosign
-
-# Copy environment file
-cp .env.example .env
-
-# Run services with Docker Compose (coming in Phase 3)
-# docker compose up -d
+cp .env.example .env        # Windows: copy .env.example .env
+# edit .env and set ADMIN_API_KEY to a long random value
+docker compose up --build
 ```
 
----
+- Web app: http://localhost:8501
+- API docs: http://localhost:8000/docs
 
-## 📡 API Overview
+The first build downloads several hundred MB and can take a while on a slow connection. Later builds reuse the cache. Change the database passwords in `.env` before any real deployment.
 
-Acosign provides a REST API built with FastAPI for track registration, query identification, catalog management, and system health checks.
+Generate a key with: `python -c "import secrets; print(secrets.token_urlsafe(32))"`
 
-- **`GET /health`**: Health check reporting service status and database connectivity.
-- **`POST /register`**: Upload an audio file, extract fingerprints, store them in the database, and return a unique `content_id`.
-- **`POST /identify`**: Upload an unknown audio clip (minimum 3.0s) to identify matching registered tracks via peak offset alignment voting.
-- **`GET /tracks`**: List registered tracks with pagination (`limit` capped at 100, `offset`).
-- **`GET /tracks/{content_id}`**: Retrieve metadata for a specific registered track.
-- **`DELETE /tracks/{content_id}`**: Delete a track and cascade-remove all associated fingerprint hashes.
-
----
-
-## 🖥️ Demo UI
-
-Acosign provides a Streamlit web interface for interactive fingerprint registration, audio query identification, and catalog exploration.
-
-### Running the UI
-
-Ensure your API backend is running (by default at `http://localhost:8000`), then start Streamlit:
+## Run without Docker (alternative)
 
 ```bash
-# Optional: set custom backend URL (defaults to http://localhost:8000)
-# export API_URL=http://localhost:8000
-
-streamlit run ui/app.py
+python -m venv venv
+venv\Scripts\activate                      # Linux/macOS: source venv/bin/activate
+pip install -r requirements.txt -r requirements-ui.txt
+docker compose up -d db                    # PostgreSQL only, on localhost:5433
+uvicorn app.main:app --port 8000
+streamlit run ui/app.py                    # in a second terminal, venv active
 ```
 
-### UI Pages & Access Control
+## API
 
-Acosign UI is built as a multi-page app with sidebar navigation and session-based admin authorization.
+| Method | Path | Access | Purpose |
+|---|---|---|---|
+| POST | `/identify` | Public | Identify a clip |
+| GET | `/tracks`, `/tracks/{content_id}` | Public | List or read tracks |
+| GET | `/health` | Public | API and database status |
+| POST | `/register` | Admin | Register a track |
+| DELETE | `/tracks/{content_id}` | Admin | Delete a track |
+| GET | `/admin/verify` | Admin | Check an admin key |
 
-#### Public Pages (Visible to All Visitors)
-- **Identify (Default):**
-  Hero section with one-tap recording via microphone (`st.audio_input`) or file snippet upload (`.mp3`, `.wav`, `.m4a`). Submits query audio to `POST /identify` and displays an inspection card with track title, owner, metadata (album, genre, release year), strength badge (`STRONG MATCH` in green vs. `WEAK MATCH` in orange), score, temporal alignment offset, and an inline amplitude envelope waveform visualizer (for WAV clips). Displays a muted "No match found" card if unrecognized.
-- **Tracks (Read-Only):**
-  Public catalog browser with a search box filtering tracks by title or owner. Renders clean row cards showing track title, owner, genre, year, and duration (`mm:ss`). Does not permit catalog modifications.
-- **Developers:**
-  API documentation and interactive testing portal. Features copyable `curl` and Python `requests` quickstart code snippets, direct link to FastAPI `/docs`, an interactive "Try it" test box with raw JSON output, status code definitions, and response field specifications.
-
-#### Admin-Only Pages (Unlocked via Admin Login)
-- **Register (2-Step Ingestion Wizard):**
-  - **Step 1:** Upload master audio file (`.mp3`, `.wav`, `.m4a`) and verify via inline audio player preview (`st.audio`).
-  - **Step 2:** Form input for required metadata (Title, Owner) and optional metadata (Album, Genre, Release Year, ISRC, License Type, Description). Submits to `POST /register` with administrative credentials.
-- **Manage Tracks:**
-  Catalog administration interface showing registered tracks with a per-track **Delete** button guarded by a two-step confirmation prompt calling `DELETE /tracks/{content_id}`.
-
-#### Admin Login Flow
-1. At the bottom of the sidebar, enter the secret admin key into the password field and click **Log in**.
-2. The UI validates the key against `GET /admin/verify`:
-   - `204 No Content`: The key is saved securely in `st.session_state` (never logged or printed), unlocking the **Register** and **Manage tracks** pages.
-   - `401 Unauthorized`: Displays "Wrong admin key".
-   - `503 Service Unavailable`: Displays "Admin not configured".
-3. An active admin session can click **Log out** in the sidebar at any time to clear credentials and return to public mode.
-
----
-
-## 🔐 Administrative Protection (`ADMIN_API_KEY`)
-
-Acosign secures mutating administrative endpoints (`POST /register` and `DELETE /tracks/{content_id}`) with an API key dependency (`X-API-Key`).
-
-### Setting the Admin Key
-
-Set `ADMIN_API_KEY` in your `.env` file or environment:
-
-```env
-ADMIN_API_KEY=change_me_admin_key
+```bash
+curl -X POST http://localhost:8000/identify -F "file=@clip.wav"
 ```
 
-- When accessing the Streamlit UI, enter your admin key in the **Admin key** field in the sidebar. When left empty, register and delete actions remain locked.
-- **Demo Pre-registration:** Demo audio tracks are pre-registered by the administrator. Normal users can immediately identify audio snippets in the **Identify** tab without needing administrative privileges.
+Admin endpoints need the header `X-API-Key: <your key>`. The full reference is in [docs/api.md](docs/api.md). `match_strength` (strong or weak) is derived from the vote score.
 
----
+## Supported audio
 
+MP3 and WAV are the main formats. Other formats such as M4A are decoded with ffmpeg, which is included in the Docker image. Clips longer than 20 seconds are trimmed to their middle window for identification.
 
-## 🎵 Supported Audio Formats
-
-- **Officially Supported:** `MP3` and `WAV` (native decoding via SoundFile/librosa).
-- **Conditional Support:** `M4A` (works only when `ffmpeg` is installed on the host system or container).
-
----
-
-## ⚠️ Known Limits
-
-- **Acoustic Noise Degradation:** Under heavy background noise (SNR 10 dB), short 5-second clips achieve ~77% identification accuracy.
-- **Minimum Query Length:** Query clips require at least 3.0 seconds of audio to extract sufficient landmark pairs for reliable identification.
-- **Single-Track Baseline:** Robustness benchmarks to date were evaluated on single-track baselines; see [docs/testing.md](docs/testing.md) for full benchmark tables and parameter evaluations.
-
----
-
-## 🧪 Testing
-
-The test suite contains pure unit tests and integration tests using synthetic, deterministically generated multi-tone audio (using an in-memory SQLite database override).
-
-To run the full test suite:
+## Testing and results
 
 ```bash
 python -m pytest -q
 ```
 
----
+The engine was evaluated with 3 registered tracks (about 300,000 hashes) and 270 queries:
 
-## 🎯 Use Cases
+| Condition (5 s clips) | Accuracy |
+|---|---|
+| Clean | 86.7% |
+| Noise at 10 dB | 93.3% |
+| Phone-speaker low-pass | 93.3% |
+| 10 s clips | 93 to 100% |
 
-- **Royalty Tracking:** Check when and where registered audio is being played.
-- **Copyright Check:** Allow music platforms or streaming apps to check if uploaded audio already belongs to someone else.
-- **Audio Identification:** A Shazam-style search API for apps to identify music tracks from short audio clips.
+**False positives: 0 of 270.** A live speaker-and-microphone test identified all 3 demo tracks with a strong match. Full tables and methods are in [docs/testing.md](docs/testing.md).
 
----
+## Known limits
 
-## 🛠 Tech Stack
+- Clips of 3 seconds or less are unreliable. Use 5 seconds or more.
+- Heavy noise (5 dB) lowers accuracy on short clips.
+- Registration takes about a minute for a 3-minute track.
+- Admin access uses one shared secret key.
+- Evaluated on a small catalogue (3 tracks).
 
-- **
-Backend / API:** FastAPI (Python)
-- **Audio Processing:** Librosa / NumPy / SciPy
-- **Database:** PostgreSQL (SQLAlchemy 2.0)
-- **Frontend / Demo:** Streamlit
-- **Deployment:** Docker & Docker Compose
+## Roadmap
+
+- Per-user accounts with hashed passwords and expiring tokens
+- Per-developer API keys with rate limits and usage tracking
+- HTTPS deployment and a production frontend
+- Larger catalogue and a faster, batched registration pipeline
+
+
+## Tech stack
+
+FastAPI, Librosa, NumPy, SciPy, PostgreSQL (SQLAlchemy), Streamlit, Docker Compose.

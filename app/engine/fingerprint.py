@@ -1,6 +1,6 @@
 """Audio fingerprinting engine: loading, spectrogram computation, and peak finding.
 
-Follows the Dejavu peak-finding algorithm principles (pure functions, deterministic).
+Landmark-based peak finding (pure functions, deterministic).
 See AGENT.md Rules 1, 2, and 8.
 """
 

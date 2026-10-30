@@ -1,6 +1,6 @@
 """app.engine.matcher — offset voting and track matching logic (P1.5).
 
-Implements the Dejavu peak-matching algorithm:
+Implements time-offset voting for landmark hashes:
 For each matching hash between query clip and database entries, calculate
 the time difference:
     offset = db_time - clip_time

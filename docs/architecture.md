@@ -4,7 +4,7 @@ This document details the architectural design and algorithms powering the Acosi
 
 ## Overview
 
-Acosign is an audio identification and Content ID platform built on landmark constellation fingerprinting and temporal offset voting (inspired by the Dejavu algorithm). The system operates across four stages:
+Acosign is an audio identification and Content ID platform built on landmark constellation fingerprinting and temporal offset voting (as described in Avery Wang, 'An Industrial-Strength Audio Search Algorithm', 2003). The system operates across four stages:
 
 1. **Upload:** Audio is ingested via file upload or raw byte streams (supporting WAV, MP3, and other common formats).
 2. **Fingerprint:** Raw audio is converted into a deterministic sequence of integer hashes representing time-frequency peak pairs.

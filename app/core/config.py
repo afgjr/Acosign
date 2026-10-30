@@ -11,8 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Acosign application settings.
 
-    Audio fingerprinting parameters follow the Dejavu algorithm reference:
-    spectrogram → peak detection → hash pairs → offset-vote matching.
+    Audio fingerprinting parameters (landmark fingerprinting).
     """
 
     model_config = SettingsConfigDict(
