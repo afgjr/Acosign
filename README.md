@@ -22,7 +22,7 @@ Acosign takes an audio track, creates an acoustic fingerprint, stores it with a 
 
 ## Demo video
 
-[![Watch the Acosign demo](https://raw.githubusercontent.com/afgjr/Acosign/main/app/docs/img/identify-1.png)](https://drive.google.com/file/d/1XzTsCR529qfJbZZ41-dHr9OdaNkniElT/view)
+[![Watch the Acosign demo](https://raw.githubusercontent.com/afgjr/Acosign/main/docs/img/identify-1.png)](https://drive.google.com/file/d/1XzTsCR529qfJbZZ41-dHr9OdaNkniElT/view)
 
 A 3-minute walkthrough: identifying a song from the microphone, uploading a file, browsing tracks, the developer API, and registering a track as admin.
 
